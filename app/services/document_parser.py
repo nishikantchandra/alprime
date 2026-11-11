@@ -1,10 +1,10 @@
 """Multi-format document parsing for PDF, DOCX (with tables), and TXT files."""
 
-from dataclasses import dataclass
 import io
-from pathlib import Path
 import re
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 
 from docx import Document as DocxDocument
 from docx.oxml.table import CT_Tbl
@@ -49,6 +49,7 @@ def sanitize_filename(filename: str | None) -> str:
 
 
 def _parse_pdf(file_bytes: bytes, filename: str) -> list[ParsedSection]:
+    """One section per PDF page with text; blank or image-only pages are skipped (no OCR)."""
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
     except PdfReadError as exc:
@@ -64,18 +65,14 @@ def _parse_pdf(file_bytes: bytes, filename: str) -> list[ParsedSection]:
                 f"PDF '{filename}' is encrypted and cannot be parsed without a password."
             ) from exc
         if not decrypted:
-            raise DocumentParsingError(
-                f"PDF '{filename}' is password-protected and cannot be parsed."
-            )
+            raise DocumentParsingError(f"PDF '{filename}' is password-protected and cannot be parsed.")
 
     sections: list[ParsedSection] = []
     for page_num, page in enumerate(reader.pages, start=1):
         try:
             page_text = normalize_text(page.extract_text() or "")
         except Exception as exc:
-            raise DocumentParsingError(
-                f"Error reading page {page_num} of PDF '{filename}': {exc}"
-            ) from exc
+            raise DocumentParsingError(f"Error reading page {page_num} of PDF '{filename}': {exc}") from exc
         if page_text:
             sections.append(
                 ParsedSection(
@@ -125,6 +122,11 @@ def _format_docx_table(table: Table) -> str:
 
 
 def _parse_docx(file_bytes: bytes, filename: str) -> list[ParsedSection]:
+    """Paragraphs and tables in reading order, split into pages at explicit page breaks.
+
+    DOCX has no fixed pagination, so page numbers follow manual breaks in the file; a
+    document without breaks is reported as page 1.
+    """
     try:
         doc = DocxDocument(io.BytesIO(file_bytes))
     except Exception as exc:
@@ -170,6 +172,7 @@ def _parse_docx(file_bytes: bytes, filename: str) -> list[ParsedSection]:
 
 
 def _parse_txt(file_bytes: bytes, filename: str) -> list[ParsedSection]:
+    """Decode with the first encoding in `_TEXT_ENCODINGS` that works; the whole file is page 1."""
     if b"\x00" in file_bytes:
         raise DocumentParsingError(f"TXT file '{filename}' appears to contain binary data.")
 

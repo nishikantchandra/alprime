@@ -14,14 +14,14 @@ logged; the question is truncated.
 
 from __future__ import annotations
 
+import json
+import time
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-import json
-import time
 from typing import Any
-import uuid
 
 from app.core.logging import get_logger
 

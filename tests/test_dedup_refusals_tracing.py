@@ -3,14 +3,15 @@
 import json
 import logging
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.schemas.query import QueryRequest
 from app.services.document_parser import ParsedSection
 from app.services.prompts import NO_INFO_SENTINEL, NO_INFO_USER_MESSAGE
-from app.services.rag_service import RagService, build_refusal_message
+from app.services.rag_service import RagService
+from app.services.replies import build_refusal_message
 from app.services.session_store import InMemorySessionStore
 from app.services.text_splitter import chunk_parsed_sections
 from tests.conftest import FakeLLMClient, make_memory_vector_store, make_test_settings
@@ -164,9 +165,7 @@ async def test_model_sentinel_refusal_points_to_the_closest_document() -> None:
 def _traces(caplog: pytest.LogCaptureFixture) -> list[dict]:
     prefix = "query_trace "
     return [
-        json.loads(r.getMessage()[len(prefix):])
-        for r in caplog.records
-        if r.getMessage().startswith(prefix)
+        json.loads(r.getMessage()[len(prefix) :]) for r in caplog.records if r.getMessage().startswith(prefix)
     ]
 
 
@@ -272,7 +271,10 @@ async def test_stream_fails_over_when_provider_sends_no_answer_text() -> None:
                 StalledLLM.closed = True
 
     router = RoutingLLMClient(
-        [("runware", StalledLLM("runware")), ("gemini", ScriptedLLM("gemini", answer="Revenue was KWD 1,840,000"))],
+        [
+            ("runware", StalledLLM("runware")),
+            ("gemini", ScriptedLLM("gemini", answer="Revenue was KWD 1,840,000")),
+        ],
         first_token_timeout=0.05,
     )
     trace = start_trace(mode="stream", question="q", session_id=None)

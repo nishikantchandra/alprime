@@ -1,9 +1,11 @@
 """Qdrant vector store with local FastEmbed embeddings and cross-encoder reranking."""
 
-from datetime import datetime, timezone
+import contextlib
 import os
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastembed import TextEmbedding
@@ -20,13 +22,97 @@ logger = get_logger(__name__)
 
 _TOKEN_RE = re.compile(r"[a-z0-9]{3,}")
 _QUERY_STOPWORDS = frozenset(
-    """
-    the and for are but not you all any can had her was one our out day get has him his how
-    its may new now old see two way who boy did let put say she too use what when where which
-    why with from this that these those there their about would could should shall into over
-    such than then them they were been have has does done will what's tell explain describe
-    give show list find mention state document documents pdf docx txt file files report
-    """.split()
+    [
+        "the",
+        "and",
+        "for",
+        "are",
+        "but",
+        "not",
+        "you",
+        "all",
+        "any",
+        "can",
+        "had",
+        "her",
+        "was",
+        "one",
+        "our",
+        "out",
+        "day",
+        "get",
+        "has",
+        "him",
+        "his",
+        "how",
+        "its",
+        "may",
+        "new",
+        "now",
+        "old",
+        "see",
+        "two",
+        "way",
+        "who",
+        "boy",
+        "did",
+        "let",
+        "put",
+        "say",
+        "she",
+        "too",
+        "use",
+        "what",
+        "when",
+        "where",
+        "which",
+        "why",
+        "with",
+        "from",
+        "this",
+        "that",
+        "these",
+        "those",
+        "there",
+        "their",
+        "about",
+        "would",
+        "could",
+        "should",
+        "shall",
+        "into",
+        "over",
+        "such",
+        "than",
+        "then",
+        "them",
+        "they",
+        "were",
+        "been",
+        "have",
+        "has",
+        "does",
+        "done",
+        "will",
+        "what's",
+        "tell",
+        "explain",
+        "describe",
+        "give",
+        "show",
+        "list",
+        "find",
+        "mention",
+        "state",
+        "document",
+        "documents",
+        "pdf",
+        "docx",
+        "txt",
+        "file",
+        "files",
+        "report",
+    ]
 )
 
 
@@ -34,6 +120,16 @@ def _extract_query_keywords(query: str) -> set[str]:
     """Return informative lowercase content tokens for hybrid lexical rescue."""
     return {tok for tok in _TOKEN_RE.findall(query.lower()) if tok not in _QUERY_STOPWORDS}
 
+
+# Bounded lexical rescue: a chunk just under the rerank gate is still admitted when it shares
+# a content keyword with the question and both scores are close to the gate. Pure noise
+# scores around -11, so it can never qualify. Calibration is in the verification report.
+_RESCUE_ENABLED_AT_OR_BELOW_GATE = -5.0  # only applies with a permissive configured gate
+_RESCUE_MIN_COSINE = 0.48
+_RESCUE_MIN_RERANK = -8.8
+# Ranking bonus per shared keyword, capped so lexical overlap cannot outrank relevance.
+_OVERLAP_BONUS_PER_KEYWORD = 0.8
+_OVERLAP_BONUS_CAP = 2.5
 
 _MAX_OVERVIEW_DOCS = 12
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
@@ -59,40 +155,32 @@ def _lexical_overlap_count(keywords: set[str], text: str) -> int:
     return len(keywords & chunk_tokens)
 
 
+@dataclass(slots=True, kw_only=True)
 class RetrievedChunk:
     """Internal search result holding vector and cross-encoder scores."""
 
-    __slots__ = (
-        "chunk_id",
-        "doc_id",
-        "document_name",
-        "page",
-        "chunk_index",
-        "text",
-        "similarity_score",
-        "rerank_score",
-    )
+    chunk_id: str
+    doc_id: str
+    document_name: str
+    page: int
+    chunk_index: int
+    text: str
+    similarity_score: float
+    rerank_score: float | None = None
 
-    def __init__(
-        self,
-        *,
-        chunk_id: str,
-        doc_id: str,
-        document_name: str,
-        page: int,
-        chunk_index: int,
-        text: str,
-        similarity_score: float,
-        rerank_score: float | None = None,
-    ) -> None:
-        self.chunk_id = chunk_id
-        self.doc_id = doc_id
-        self.document_name = document_name
-        self.page = page
-        self.chunk_index = chunk_index
-        self.text = text
-        self.similarity_score = similarity_score
-        self.rerank_score = rerank_score
+    @classmethod
+    def from_point(cls, point: Any, *, similarity_score: float) -> "RetrievedChunk":
+        """Build a chunk from a Qdrant point and its stored payload."""
+        payload = point.payload or {}
+        return cls(
+            chunk_id=str(point.id),
+            doc_id=str(payload.get("doc_id", "")),
+            document_name=str(payload.get("source_filename", "unknown")),
+            page=int(payload.get("page_number", 1)),
+            chunk_index=int(payload.get("chunk_index", 0)),
+            text=str(payload.get("text", "")),
+            similarity_score=similarity_score,
+        )
 
 
 class QdrantVectorStore:
@@ -173,6 +261,7 @@ class QdrantVectorStore:
             raise VectorStoreError(f"Failed checking Qdrant collection: {exc}") from exc
 
     def _ensure_collection(self, vector_size: int) -> None:
+        """Create the cosine-distance collection on first upload, sized to the embedding model."""
         if self._collection_exists():
             return
         logger.info(
@@ -219,7 +308,7 @@ class QdrantVectorStore:
         if not chunks:
             return 0
 
-        timestamp = (uploaded_at or datetime.now(timezone.utc)).isoformat()
+        timestamp = (uploaded_at or datetime.now(UTC)).isoformat()
         try:
             vectors = self._embed_passages([c.text for c in chunks])
             self._vector_size = len(vectors[0])
@@ -269,9 +358,7 @@ class QdrantVectorStore:
     def _build_doc_filter(doc_ids: list[str] | None) -> models.Filter | None:
         if not doc_ids:
             return None
-        return models.Filter(
-            must=[models.FieldCondition(key="doc_id", match=models.MatchAny(any=doc_ids))]
-        )
+        return models.Filter(must=[models.FieldCondition(key="doc_id", match=models.MatchAny(any=doc_ids))])
 
     def search_and_rerank(
         self,
@@ -289,9 +376,7 @@ class QdrantVectorStore:
 
         resolved_top_k = top_k if top_k is not None else self._settings.retrieval_top_k
         resolved_rerank_k = rerank_k if rerank_k is not None else self._settings.rerank_top_k
-        vec_threshold = (
-            min_vector_score if min_vector_score is not None else self._settings.min_vector_score
-        )
+        vec_threshold = min_vector_score if min_vector_score is not None else self._settings.min_vector_score
         rerank_threshold = (
             min_rerank_score if min_rerank_score is not None else self._settings.min_rerank_score
         )
@@ -308,23 +393,11 @@ class QdrantVectorStore:
         except Exception as exc:
             raise VectorStoreError(f"Qdrant similarity search failed: {exc}") from exc
 
-        candidates: list[RetrievedChunk] = []
-        for point in response.points:
-            payload = point.payload or {}
-            score = float(point.score)
-            if score < vec_threshold:
-                continue
-            candidates.append(
-                RetrievedChunk(
-                    chunk_id=str(point.id),
-                    doc_id=str(payload.get("doc_id", "")),
-                    document_name=str(payload.get("source_filename", "unknown")),
-                    page=int(payload.get("page_number", 1)),
-                    chunk_index=int(payload.get("chunk_index", 0)),
-                    text=str(payload.get("text", "")),
-                    similarity_score=score,
-                )
-            )
+        candidates = [
+            RetrievedChunk.from_point(point, similarity_score=float(point.score))
+            for point in response.points
+            if float(point.score) >= vec_threshold
+        ]
 
         if not candidates:
             logger.info("All retrieval candidates rejected by MIN_VECTOR_SCORE=%.3f", vec_threshold)
@@ -346,30 +419,24 @@ class QdrantVectorStore:
             )
 
         query_keywords = _extract_query_keywords(query)
-        allow_lexical_rescue = rerank_threshold <= -5.0
+        allow_lexical_rescue = rerank_threshold <= _RESCUE_ENABLED_AT_OR_BELOW_GATE
 
-        verified: list[tuple[int, RetrievedChunk]] = []
+        verified: list[tuple[float, RetrievedChunk]] = []
         for candidate, r_score in zip(candidates, rerank_scores, strict=True):
             candidate.rerank_score = r_score
             overlap = _lexical_overlap_count(query_keywords, candidate.text)
             rescued = (
                 allow_lexical_rescue
                 and overlap >= 1
-                and candidate.similarity_score >= 0.48
-                and r_score >= -8.8
+                and candidate.similarity_score >= _RESCUE_MIN_COSINE
+                and r_score >= _RESCUE_MIN_RERANK
             )
             if r_score >= rerank_threshold or rescued:
-                verified.append((overlap, candidate))
+                bonus = min(_OVERLAP_BONUS_CAP, overlap * _OVERLAP_BONUS_PER_KEYWORD)
+                verified.append((r_score + bonus, candidate))
 
-        verified.sort(
-            key=lambda item: (
-                (item[1].rerank_score if item[1].rerank_score is not None else -999.0)
-                + min(2.5, item[0] * 0.8),
-                item[1].similarity_score,
-            ),
-            reverse=True,
-        )
-        return [item[1] for item in verified[:resolved_rerank_k]]
+        verified.sort(key=lambda item: (item[0], item[1].similarity_score), reverse=True)
+        return [chunk for _, chunk in verified[:resolved_rerank_k]]
 
     @staticmethod
     def _max_window_scores(
@@ -403,7 +470,7 @@ class QdrantVectorStore:
             logger.warning("Sentence-window reranking failed, using chunk scores: %s", exc)
             return chunk_scores
         best = list(chunk_scores)
-        for owner, score in zip(owners, window_scores):
+        for owner, score in zip(owners, window_scores, strict=True):
             best[owner] = max(best[owner], score)
         return best
 
@@ -430,9 +497,7 @@ class QdrantVectorStore:
             models.FieldCondition(key="chunk_index", range=models.Range(lt=resolved_limit))
         ]
         if doc_ids:
-            conditions.append(
-                models.FieldCondition(key="doc_id", match=models.MatchAny(any=doc_ids))
-            )
+            conditions.append(models.FieldCondition(key="doc_id", match=models.MatchAny(any=doc_ids)))
         q_filter = models.Filter(must=conditions)
         records: list[Any] = []
         offset: Any = None
@@ -455,21 +520,10 @@ class QdrantVectorStore:
         by_doc: dict[str, list[RetrievedChunk]] = {}
         uploaded_times: dict[str, str] = {}
         for point in records:
-            payload = point.payload or {}
-            doc_id = str(payload.get("doc_id", ""))
-            chunk = RetrievedChunk(
-                chunk_id=str(point.id),
-                doc_id=doc_id,
-                document_name=str(payload.get("source_filename", "unknown")),
-                page=int(payload.get("page_number", 1)),
-                chunk_index=int(payload.get("chunk_index", 0)),
-                text=str(payload.get("text", "")),
-                similarity_score=1.0,
-                rerank_score=None,
-            )
-            by_doc.setdefault(doc_id, []).append(chunk)
-            if doc_id not in uploaded_times:
-                uploaded_times[doc_id] = str(payload.get("uploaded_at", ""))
+            chunk = RetrievedChunk.from_point(point, similarity_score=1.0)
+            by_doc.setdefault(chunk.doc_id, []).append(chunk)
+            uploaded_at = str((point.payload or {}).get("uploaded_at", ""))
+            uploaded_times.setdefault(chunk.doc_id, uploaded_at)
 
         for chunk_list in by_doc.values():
             chunk_list.sort(key=lambda c: (c.page, c.chunk_index))
@@ -566,13 +620,9 @@ class QdrantVectorStore:
                             "doc_id": doc_id,
                             "filename": str(payload.get("source_filename", "unknown")),
                             "file_type": str(payload.get("file_type", "txt")),
-                            "page_count": int(
-                                payload.get("total_pages", payload.get("page_number", 1))
-                            ),
+                            "page_count": int(payload.get("total_pages", payload.get("page_number", 1))),
                             "chunk_count": 1,
-                            "uploaded_at": str(
-                                payload.get("uploaded_at", datetime.now(timezone.utc).isoformat())
-                            ),
+                            "uploaded_at": str(payload.get("uploaded_at", datetime.now(UTC).isoformat())),
                         }
                     else:
                         entry["chunk_count"] += 1
@@ -633,7 +683,5 @@ class QdrantVectorStore:
 
     def close(self) -> None:
         """Close Qdrant client cleanly to release local disk locks."""
-        try:
+        with contextlib.suppress(Exception):
             self._client.close()
-        except Exception:
-            pass

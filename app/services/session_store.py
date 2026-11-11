@@ -2,7 +2,7 @@
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from threading import Lock
 from typing import Any, Literal
 
@@ -56,6 +56,11 @@ class InMemorySessionStore:
         assistant_answer: str,
         exchange_meta: dict[str, Any] | None,
     ) -> None:
+        """Append one exchange to the session transcript. Caller must hold `self._lock`.
+
+        Both the number of sessions and turns per session are capped (oldest evicted first),
+        so memory stays bounded on a long-running server.
+        """
         if session_id not in self._transcripts and len(self._transcripts) >= self._max_sessions:
             self._transcripts.popitem(last=False)
         items = self._transcripts.get(session_id, [])
@@ -64,7 +69,7 @@ class InMemorySessionStore:
         items.append(
             TranscriptExchange(
                 turn=next_turn,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 question=user_question,
                 answer=assistant_answer,
                 response_type=str(meta.get("response_type", "grounded")),
@@ -163,7 +168,7 @@ class InMemorySessionStore:
 
 def format_transcript_markdown(session_id: str, exchanges: list[TranscriptExchange]) -> str:
     """Render a conversation transcript into clean, shareable Markdown."""
-    exported_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    exported_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
         "# AlPrime Document Assistant — Conversation Transcript",
         f"- **Session ID:** `{session_id}`",

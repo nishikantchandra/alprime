@@ -1,9 +1,9 @@
 """Generate domain-authentic AlPrime Capital finance sample documents (PDF, DOCX, TXT)."""
 
 from pathlib import Path
+
 from docx import Document as DocxDocument
 from fpdf import FPDF
-
 
 SAMPLE_DIR = Path(__file__).resolve().parent.parent / "sample_docs"
 
@@ -82,7 +82,12 @@ def create_sample_docx(output_path: Path) -> None:
         ["Service Tier", "Monthly Fee (KWD)", "Included Analyst Hours", "Primary Deliverable"],
         ["Essential Bookkeeping", "450 KWD", "20 hours", "Monthly Trial Balance & P&L"],
         ["Growth Financial Control", "950 KWD", "45 hours", "Monthly Close, Cash Flow & Cost Variance"],
-        ["Fractional CFO Advisory", "1,850 KWD", "80 hours", "Board Reporting, Budgeting & Treasury Advisory"],
+        [
+            "Fractional CFO Advisory",
+            "1,850 KWD",
+            "80 hours",
+            "Board Reporting, Budgeting & Treasury Advisory",
+        ],
     ]
     table = doc.add_table(rows=len(retainer_rows), cols=4)
     table.style = "Table Grid"
@@ -228,24 +233,30 @@ def create_expense_policy_docx(output_path: Path) -> None:
     )
 
     doc.add_heading("1. Spend Approval Matrix", level=2)
-    _add_table(doc, [
-        ["Spend Amount (per transaction)", "Required Approver", "Approval Turnaround"],
-        ["Up to and including KWD 500", "Engagement Manager", "1 business day"],
-        ["KWD 501 to KWD 5,000", "Finance Director", "2 business days"],
-        ["Above KWD 5,000", "Managing Partner", "5 business days"],
-    ])
+    _add_table(
+        doc,
+        [
+            ["Spend Amount (per transaction)", "Required Approver", "Approval Turnaround"],
+            ["Up to and including KWD 500", "Engagement Manager", "1 business day"],
+            ["KWD 501 to KWD 5,000", "Finance Director", "2 business days"],
+            ["Above KWD 5,000", "Managing Partner", "5 business days"],
+        ],
+    )
     doc.add_paragraph(
         "Splitting a single purchase into smaller transactions to stay below an approval threshold is a "
         "policy breach and is reported to the Compliance Officer."
     )
 
     doc.add_heading("2. Travel Per Diem Rates", level=2)
-    _add_table(doc, [
-        ["Destination", "Daily Per Diem (KWD)", "Hotel Cap per Night (KWD)"],
-        ["Within Kuwait (overnight only)", "15 KWD", "Not applicable"],
-        ["GCC countries", "45 KWD", "60 KWD"],
-        ["International (outside GCC)", "70 KWD", "95 KWD"],
-    ])
+    _add_table(
+        doc,
+        [
+            ["Destination", "Daily Per Diem (KWD)", "Hotel Cap per Night (KWD)"],
+            ["Within Kuwait (overnight only)", "15 KWD", "Not applicable"],
+            ["GCC countries", "45 KWD", "60 KWD"],
+            ["International (outside GCC)", "70 KWD", "95 KWD"],
+        ],
+    )
     doc.add_paragraph(
         "Economy class is mandatory for flights under 6 hours; business class may be booked for flights "
         "of 6 hours or more with Finance Director approval."

@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 
-
 NO_INFO_SENTINEL = "NO_RELEVANT_INFO_FOUND"
 # Lead sentence of every "not found" reply. `build_refusal_message` (rag_service) follows it
 # with a short, situation-specific explanation, so refusals read naturally while always
@@ -72,12 +71,7 @@ def build_grounded_user_prompt(
             f"</chunk>"
         )
     context_body = "\n\n".join(blocks)
-    prompt = (
-        "<document_context>\n"
-        f"{context_body}\n"
-        "</document_context>\n\n"
-        f"User Question: {question}"
-    )
+    prompt = f"<document_context>\n{context_body}\n</document_context>\n\nUser Question: {question}"
     if standalone_question and standalone_question.strip() != question.strip():
         prompt += f"\n(Resolved from conversation history as: {standalone_question})"
     return prompt

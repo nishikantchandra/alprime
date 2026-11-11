@@ -180,7 +180,8 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 | Value | Meaning | LLM called? |
 | :--- | :--- | :--- |
-| `empty_knowledge_base` | No documents are indexed | No |
+| `no_documents_indexed` | No documents are indexed | No |
+| `selected_documents_missing` | Selected `doc_ids` no longer exist on the server | No |
 | `low_retrieval_relevance` | Nothing passed the similarity and cross-encoder gates (e.g. *"What is the capital of France?"*) | No |
 | `insufficient_document_evidence` | Passages were retrieved, but the model found that none of them answers the question | Yes |
 

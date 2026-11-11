@@ -57,9 +57,7 @@ async def test_layer2_vector_similarity_threshold_blocks_out_of_scope_query() ->
     llm = FakeLLMClient()
     rag = RagService(vector_store=store, llm_client=llm, session_store=InMemorySessionStore())
 
-    resp = await rag.answer_question(
-        QueryRequest(question="How do I bake chocolate chip cookies at home?")
-    )
+    resp = await rag.answer_question(QueryRequest(question="How do I bake chocolate chip cookies at home?"))
 
     assert resp.is_found is False
     assert resp.documents_used == []

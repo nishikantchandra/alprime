@@ -105,7 +105,7 @@ The first start downloads about 90 MB of local models, which takes about a minut
 | What was Q3 2026 consolidated revenue and operating margin? | Exact figures, with a citation to the file and page |
 | Why did revenue decline by 14.5% in Q3 2026? | Corrects the false premise: revenue grew |
 | Who approves a purchase of exactly KWD 5,000? | Reads the band edge correctly: the Finance Director |
-| If a client needs 120 analyst hours, what is the monthly cost? | 1,850 + 40 × 35 = KWD 3,250, marked as calculated from the documents |
+| If a client needs 120 analyst hours a month, is the Fractional CFO tier enough and what would the total monthly cost be? | No: 80 hours are included, so 40 overtime hours at KWD 35. 1,850 + 40 × 35 = KWD 3,250, marked as calculated |
 | Who is the CEO? | Says the documents do not contain this and does not guess |
 
 Every answer lists the documents and pages it came from. Click a citation to see the source passage.

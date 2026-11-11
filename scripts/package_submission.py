@@ -15,10 +15,38 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "dist" / "AlPrime_RAG_Assistant_Submission.zip"
-EXCLUDED_DIRS = {".venv", "venv", "env", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-                 "data", "uploads", ".fastembed_cache", "local_cache", "dist", ".git", ".idea", ".vscode"}
+EXCLUDED_DIRS = {
+    ".venv",
+    "venv",
+    "env",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "data",
+    "uploads",
+    ".fastembed_cache",
+    "local_cache",
+    "dist",
+    ".git",
+    ".idea",
+    ".vscode",
+}
 EXCLUDED_FILES = {".env", ".env.local", "Thumbs.db", ".DS_Store"}
-TEXT_SUFFIXES = {".py", ".md", ".txt", ".json", ".yml", ".yaml", ".toml", ".html", ".css", ".js", ".example", ""}
+TEXT_SUFFIXES = {
+    ".py",
+    ".md",
+    ".txt",
+    ".json",
+    ".yml",
+    ".yaml",
+    ".toml",
+    ".html",
+    ".css",
+    ".js",
+    ".example",
+    "",
+}
 
 
 def _included(path: Path) -> bool:

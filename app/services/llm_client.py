@@ -9,10 +9,11 @@ The `RoutingLLMClient` gives the RAG pipeline a single `LLMClient` that:
 """
 
 import asyncio
-from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Awaitable, Callable
+import contextlib
 import re
 import time
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, TypeVar
 
 from google import genai
@@ -74,6 +75,7 @@ class _ThinkStreamFilter:
         self._inside = False
 
     def feed(self, token: str) -> str:
+        """Add a token; return the text that is now known to be outside any think block."""
         self._buffer += token
         out: list[str] = []
         while self._buffer:
@@ -104,6 +106,7 @@ class _ThinkStreamFilter:
         return "".join(out)
 
     def flush(self) -> str:
+        """Release held-back text at end of stream (dropped if a think block never closed)."""
         remainder = "" if self._inside else self._buffer
         self._buffer = ""
         return remainder
@@ -505,9 +508,7 @@ class OpenAICompatibleLLMClient(LLMClient):
                 yield tail
         except Exception as exc:
             logger.warning("%s streaming interrupted: %s", self._label, exc)
-            raise LLMProviderError(
-                f"{self._label} streaming was interrupted.", detail=str(exc)
-            ) from exc
+            raise LLMProviderError(f"{self._label} streaming was interrupted.", detail=str(exc)) from exc
 
 
 class GroqLLMClient(OpenAICompatibleLLMClient):
@@ -620,10 +621,12 @@ class RoutingLLMClient(LLMClient):
         return None
 
     def _chain(self, reasoning: bool) -> list[tuple[str, LLMClient]]:
+        """Configured providers in try order; the reasoning provider moves first for hard questions."""
         configured = [(n, c) for n, c in self._providers if c.is_configured]
         if not configured:
             raise LLMConfigurationError(
-                "No LLM provider is configured. Set RUNWARE_API_KEY, GEMINI_API_KEY and/or GROQ_API_KEY in .env."
+                "No LLM provider is configured. "
+                "Set RUNWARE_API_KEY, GEMINI_API_KEY and/or GROQ_API_KEY in .env."
             )
         if reasoning and self._reasoning_provider:
             preferred = [(n, c) for n, c in configured if n == self._reasoning_provider]
@@ -640,6 +643,7 @@ class RoutingLLMClient(LLMClient):
         max_tokens: int | None = None,
         reasoning: bool = False,
     ) -> str:
+        """Try each provider in turn; raise the last error only if every provider fails."""
         chain = self._chain(reasoning)
         last_exc: Exception | None = None
         for idx, (name, client) in enumerate(chain):
@@ -673,6 +677,11 @@ class RoutingLLMClient(LLMClient):
         max_tokens: int | None = None,
         reasoning: bool = False,
     ) -> AsyncIterator[str]:
+        """Stream from the first provider that produces text.
+
+        Failover is only possible before the first token is yielded; after that a provider
+        error is re-raised, because two models' partial answers cannot be stitched together.
+        """
         chain = self._chain(reasoning)
         last_exc: Exception | None = None
         for idx, (name, client) in enumerate(chain):
@@ -728,7 +737,7 @@ class RoutingLLMClient(LLMClient):
             return await asyncio.wait_for(anext(tokens), timeout=self._first_token_timeout)
         except StopAsyncIteration:
             return None
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             await _aclose_quietly(tokens)
             logger.warning(
                 "LLM stream provider '%s' sent no answer text within %.0fs",
@@ -745,10 +754,8 @@ async def _aclose_quietly(tokens: AsyncIterator[str]) -> None:
     aclose = getattr(tokens, "aclose", None)
     if aclose is None:
         return
-    try:
+    with contextlib.suppress(Exception):  # best-effort cleanup
         await aclose()
-    except Exception:  # pragma: no cover - best-effort cleanup
-        pass
 
 
 def _trace_call(

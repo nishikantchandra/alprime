@@ -1,6 +1,7 @@
 """FastAPI REST endpoint, authentication, error-handling, and SSE integration tests."""
 
 import io
+
 from docx import Document as DocxDocument
 from fastapi.testclient import TestClient
 from fpdf import FPDF
@@ -148,13 +149,8 @@ def test_api_key_authentication_enforced_when_enabled() -> None:
     with _build_client(auth_enabled=True, api_key="alprime-secret") as client:
         assert client.get("/health").status_code == 200
         assert client.get("/api/v1/documents").status_code == 401
-        assert (
-            client.get("/api/v1/documents", headers={"X-API-Key": "wrong-key"}).status_code == 401
-        )
-        assert (
-            client.get("/api/v1/documents", headers={"X-API-Key": "alprime-secret"}).status_code
-            == 200
-        )
+        assert client.get("/api/v1/documents", headers={"X-API-Key": "wrong-key"}).status_code == 401
+        assert client.get("/api/v1/documents", headers={"X-API-Key": "alprime-secret"}).status_code == 200
 
 
 def test_sse_stream_endpoint_and_session_clear() -> None:
@@ -188,7 +184,9 @@ def test_session_transcript_export_markdown_and_json() -> None:
 
         client.post(
             "/api/v1/documents/upload",
-            files=[("files", ("q3.txt", b"Q3 2026 consolidated revenue reached KWD 1,840,000.", "text/plain"))],
+            files=[
+                ("files", ("q3.txt", b"Q3 2026 consolidated revenue reached KWD 1,840,000.", "text/plain"))
+            ],
         )
 
         # Turn 1: conversational greeting
@@ -207,7 +205,12 @@ def test_session_transcript_export_markdown_and_json() -> None:
         # Turn 3: mid-conversation upload + question on new doc (transcript keeps prior turns!)
         client.post(
             "/api/v1/documents/upload",
-            files=[("files", ("kyc.txt", b"High-risk client KYC escalation SLA is 1 business day.", "text/plain"))],
+            files=[
+                (
+                    "files",
+                    ("kyc.txt", b"High-risk client KYC escalation SLA is 1 business day.", "text/plain"),
+                )
+            ],
         )
         q2 = client.post(
             "/api/v1/query",
@@ -219,7 +222,7 @@ def test_session_transcript_export_markdown_and_json() -> None:
         md_resp = client.get("/api/v1/sessions/exp-1/export?format=markdown")
         assert md_resp.status_code == 200
         assert "text/markdown" in md_resp.headers["content-type"]
-        assert "attachment; filename=\"alprime-transcript-exp-1.md\"" in md_resp.headers["content-disposition"]
+        assert 'attachment; filename="alprime-transcript-exp-1.md"' in md_resp.headers["content-disposition"]
         assert "Turn 1 — User" in md_resp.text
         assert "Hello!" in md_resp.text
         assert "Revenue reached KWD 1,840,000 [1]." in md_resp.text

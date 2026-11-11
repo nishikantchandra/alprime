@@ -1,9 +1,9 @@
 """Grounded RAG question-answering endpoints (JSON + SSE streaming + session management)."""
 
-from collections.abc import AsyncIterator
-from datetime import datetime, timezone
 import json
 import re
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -69,7 +69,10 @@ async def stream_query_documents(
             # Log full details server-side; never leak internals to the client.
             logger.exception("Unexpected failure while streaming an answer")
             err_payload = json.dumps(
-                {"detail": "An internal error occurred while generating the answer.", "error_code": "stream_failure"}
+                {
+                    "detail": "An internal error occurred while generating the answer.",
+                    "error_code": "stream_failure",
+                }
             )
             yield f"event: error\ndata: {err_payload}\n\n"
 
@@ -127,7 +130,7 @@ def export_session_transcript(
     if format == "json":
         payload = SessionTranscriptResponse(
             session_id=session_id,
-            exported_at=datetime.now(timezone.utc),
+            exported_at=datetime.now(UTC),
             total_turns=len(exchanges),
             turns=[
                 TranscriptTurnSchema(
@@ -147,16 +150,12 @@ def export_session_transcript(
         )
         return JSONResponse(
             content=payload.model_dump(mode="json"),
-            headers={
-                "Content-Disposition": f'attachment; filename="alprime-transcript-{safe_id}.json"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="alprime-transcript-{safe_id}.json"'},
         )
 
     markdown = format_transcript_markdown(session_id, exchanges)
     return PlainTextResponse(
         content=markdown,
         media_type="text/markdown; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="alprime-transcript-{safe_id}.md"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="alprime-transcript-{safe_id}.md"'},
     )

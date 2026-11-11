@@ -2,7 +2,7 @@
 
 from app.config import Settings
 from app.services.document_parser import ParsedSection
-from app.services.rag_service import is_document_overview_query
+from app.services.query_intent import is_document_overview_query
 from app.services.text_splitter import chunk_parsed_sections
 from app.services.vector_store import _sentence_windows
 from tests.conftest import make_memory_vector_store, make_test_settings
@@ -44,7 +44,10 @@ def _store(window_scoring: bool, reranker):
     ]:
         chunks = chunk_parsed_sections(
             [ParsedSection(text=text, page_number=1, source_filename=name)],
-            doc_id=doc_id, file_type="txt", chunk_size=800, chunk_overlap=50,
+            doc_id=doc_id,
+            file_type="txt",
+            chunk_size=800,
+            chunk_overlap=50,
         )
         store.upsert_chunks(chunks, total_pages=1)
     return store
@@ -56,7 +59,10 @@ def test_window_scoring_is_on_by_default() -> None:
 
 def test_sentence_windows_skip_short_chunks() -> None:
     assert _sentence_windows("One sentence only.") == []
-    assert _sentence_windows("A is one. B is two. C is three.") == ["A is one. B is two.", "B is two. C is three."]
+    assert _sentence_windows("A is one. B is two. C is three.") == [
+        "A is one. B is two.",
+        "B is two. C is three.",
+    ]
 
 
 def test_mixed_chunk_is_dropped_without_window_scoring() -> None:
@@ -116,7 +122,10 @@ def test_overview_lead_chunks_cover_every_document_beyond_top_k() -> None:
     for i in range(6):
         chunks = chunk_parsed_sections(
             [ParsedSection(text=f"Document {i} opening text.", page_number=1, source_filename=f"d{i}.txt")],
-            doc_id=f"doc-{i}", file_type="txt", chunk_size=400, chunk_overlap=50,
+            doc_id=f"doc-{i}",
+            file_type="txt",
+            chunk_size=400,
+            chunk_overlap=50,
         )
         store.upsert_chunks(chunks, total_pages=1)
     lead = store.get_lead_chunks(limit=4)
@@ -152,14 +161,19 @@ async def test_drifted_follow_up_rewrite_still_retrieves_original_question_evide
     ]:
         chunks = chunk_parsed_sections(
             [ParsedSection(text=text, page_number=1, source_filename=name)],
-            doc_id=doc_id, file_type="txt", chunk_size=400, chunk_overlap=50,
+            doc_id=doc_id,
+            file_type="txt",
+            chunk_size=400,
+            chunk_overlap=50,
         )
         store.upsert_chunks(chunks, total_pages=1)
-    llm = FakeLLMClient(responses=[
-        "DSO was 34 days [1].",                 # turn 1 answer
-        "What was the DSO in Q3 2026?",         # turn 2 condense: drifts back to the old topic
-        "Overtime is KWD 35 per hour [1].",     # turn 2 answer
-    ])
+    llm = FakeLLMClient(
+        responses=[
+            "DSO was 34 days [1].",  # turn 1 answer
+            "What was the DSO in Q3 2026?",  # turn 2 condense: drifts back to the old topic
+            "Overtime is KWD 35 per hour [1].",  # turn 2 answer
+        ]
+    )
     rag = RagService(vector_store=store, llm_client=llm, session_store=InMemorySessionStore())
     await rag.answer_question(QueryRequest(question="What was the DSO?", session_id="s"))
     resp = await rag.answer_question(QueryRequest(question="What is the overtime rate?", session_id="s"))

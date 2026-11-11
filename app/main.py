@@ -1,8 +1,8 @@
 """FastAPI application entrypoint, lifecycle wiring, and Web UI hosting."""
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-import os
 from pathlib import Path
 
 # Prevent HuggingFace Xet transient Windows socket disconnects & symlink noise.
@@ -41,6 +41,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        """Build shared services once at startup; injected test doubles replace the real ones."""
         application.state.settings = resolved_settings
         vs = vector_store if vector_store is not None else QdrantVectorStore(resolved_settings)
         llm = llm_client if llm_client is not None else build_llm_client(resolved_settings)

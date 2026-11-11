@@ -1,9 +1,10 @@
 """Document ingestion, listing, and deletion endpoints."""
 
 import asyncio
-from datetime import datetime, timezone
 import hashlib
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 
@@ -19,6 +20,7 @@ from app.core.logging import get_logger
 from app.core.security import verify_api_key
 from app.schemas.document import (
     DeleteDocumentResponse,
+    DocumentInfo,
     DocumentListResponse,
     UploadedDocResult,
     UploadResponse,
@@ -52,14 +54,23 @@ async def _read_with_limit(upload: UploadFile, max_bytes: int, safe_name: str, m
     return bytes(buffer)
 
 
+@dataclass(slots=True)
+class _PreparedDocument:
+    """A parsed and chunked upload, ready to be written to the vector store."""
+
+    result: UploadedDocResult
+    chunks: list[DocumentChunk]
+    total_pages: int
+    content_sha256: str
+
+
 def _prepare_document(
-    raw_bytes: bytes, safe_name: str, settings: Settings
-) -> tuple[UploadedDocResult, list[DocumentChunk], int]:
+    raw_bytes: bytes, safe_name: str, content_sha256: str, settings: Settings
+) -> _PreparedDocument:
     """Parse and chunk one document (blocking; called via `asyncio.to_thread`)."""
     file_type, sections = extract_document_sections(raw_bytes, safe_name)
     doc_id = str(uuid.uuid4())
     total_pages = max(section.page_number for section in sections)
-    char_count = sum(len(section.text) for section in sections)
 
     chunks = chunk_parsed_sections(
         sections,
@@ -77,9 +88,70 @@ def _prepare_document(
         file_type=file_type,
         page_count=total_pages,
         chunk_count=len(chunks),
-        char_count=char_count,
+        char_count=sum(len(section.text) for section in sections),
     )
-    return result, chunks, total_pages
+    return _PreparedDocument(result, chunks, total_pages, content_sha256)
+
+
+def _already_indexed(existing: DocumentInfo) -> UploadedDocResult:
+    return UploadedDocResult(
+        doc_id=existing.doc_id,
+        filename=existing.filename,
+        file_type=existing.file_type,
+        page_count=existing.page_count,
+        chunk_count=existing.chunk_count,
+        status="already_indexed",
+    )
+
+
+async def _index_all(
+    prepared_docs: list[_PreparedDocument], vector_store: QdrantVectorStore
+) -> tuple[list[UploadedDocResult], int]:
+    """Write every prepared document; on any failure remove what this batch already wrote."""
+    now = datetime.now(UTC)
+    indexed_results: list[UploadedDocResult] = []
+    total_chunks = 0
+    for doc in prepared_docs:
+        try:
+            indexed = await asyncio.to_thread(
+                vector_store.upsert_chunks,
+                doc.chunks,
+                total_pages=doc.total_pages,
+                uploaded_at=now,
+                content_sha256=doc.content_sha256,
+            )
+        except Exception:
+            # Roll back this document (possibly partially written) and the earlier ones.
+            for rollback in [*indexed_results, doc.result]:
+                try:
+                    await asyncio.to_thread(vector_store.delete_document, rollback.doc_id)
+                except Exception as cleanup_exc:
+                    logger.error("Rollback failed for doc_id=%s: %s", rollback.doc_id, cleanup_exc)
+            raise
+        total_chunks += indexed
+        indexed_results.append(doc.result)
+        logger.info(
+            "Indexed document '%s' (doc_id=%s, pages=%d, chunks=%d)",
+            doc.result.filename,
+            doc.result.doc_id,
+            doc.result.page_count,
+            indexed,
+        )
+    return indexed_results, total_chunks
+
+
+def _upload_message(file_count: int, indexed_count: int) -> str:
+    skipped = file_count - indexed_count
+    if not indexed_count:
+        if file_count > 1:
+            return f"All {file_count} file(s) were already indexed; nothing new was added."
+        return "This file is already indexed; nothing new was added."
+    if skipped:
+        return (
+            f"Indexed {indexed_count} new document(s); "
+            f"skipped {skipped} duplicate file(s) that were already indexed."
+        )
+    return f"Successfully processed and indexed {indexed_count} document(s)."
 
 
 @router.post(
@@ -109,9 +181,9 @@ async def upload_documents(
         raise TooManyFilesError(settings.max_upload_files)
 
     max_bytes = settings.max_upload_mb * 1024 * 1024
-    prepared_docs: list[tuple[UploadedDocResult, list[DocumentChunk], int, str]] = []
+    prepared_docs: list[_PreparedDocument] = []
     duplicates: list[UploadedDocResult] = []
-    batch_hashes: dict[str, str] = {}
+    names_by_hash: dict[str, str] = {}
 
     for upload in files:
         safe_name = sanitize_filename(upload.filename)
@@ -126,79 +198,27 @@ async def upload_documents(
                 existing.doc_id,
                 existing.filename,
             )
-            duplicates.append(
-                UploadedDocResult(
-                    doc_id=existing.doc_id,
-                    filename=existing.filename,
-                    file_type=existing.file_type,
-                    page_count=existing.page_count,
-                    chunk_count=existing.chunk_count,
-                    status="already_indexed",
-                )
-            )
+            duplicates.append(_already_indexed(existing))
             continue
-        if digest in batch_hashes:
-            logger.info("Skipped '%s': same content as '%s' in this batch", safe_name, batch_hashes[digest])
+        if digest in names_by_hash:
+            logger.info("Skipped '%s': same content as '%s' in this batch", safe_name, names_by_hash[digest])
             continue
-        batch_hashes[digest] = safe_name
+        names_by_hash[digest] = safe_name
 
         # CPU-bound parsing/chunking runs in a worker thread so the event loop stays responsive.
-        result, chunks, total_pages = await asyncio.to_thread(
-            _prepare_document, raw_bytes, safe_name, settings
-        )
-        prepared_docs.append((result, chunks, total_pages, digest))
-
-    now = datetime.now(timezone.utc)
-    uploaded_results: list[UploadedDocResult] = []
-    total_chunks = 0
-    for result, chunks, total_pages, digest in prepared_docs:
-        try:
-            indexed = await asyncio.to_thread(
-                vector_store.upsert_chunks,
-                chunks,
-                total_pages=total_pages,
-                uploaded_at=now,
-                content_sha256=digest,
-            )
-        except Exception:
-            # Roll back this document (possibly partially written) and the earlier ones.
-            for rollback in [*uploaded_results, result]:
-                try:
-                    await asyncio.to_thread(vector_store.delete_document, rollback.doc_id)
-                except Exception as cleanup_exc:
-                    logger.error("Rollback failed for doc_id=%s: %s", rollback.doc_id, cleanup_exc)
-            raise
-        total_chunks += indexed
-        uploaded_results.append(result)
-        logger.info(
-            "Indexed document '%s' (doc_id=%s, pages=%d, chunks=%d)",
-            result.filename,
-            result.doc_id,
-            result.page_count,
-            indexed,
+        prepared_docs.append(
+            await asyncio.to_thread(_prepare_document, raw_bytes, safe_name, digest, settings)
         )
 
-    skipped = len(files) - len(uploaded_results)
-    if not uploaded_results:
+    indexed_results, total_chunks = await _index_all(prepared_docs, vector_store)
+    if not indexed_results:
         response.status_code = status.HTTP_200_OK  # nothing was created
-        message = (
-            f"All {len(files)} file(s) were already indexed; nothing new was added."
-            if len(files) > 1
-            else "This file is already indexed; nothing new was added."
-        )
-    elif skipped:
-        message = (
-            f"Indexed {len(uploaded_results)} new document(s); "
-            f"skipped {skipped} duplicate file(s) that were already indexed."
-        )
-    else:
-        message = f"Successfully processed and indexed {len(uploaded_results)} document(s)."
 
     return UploadResponse(
-        message=message,
-        documents=[*uploaded_results, *duplicates],
+        message=_upload_message(len(files), len(indexed_results)),
+        documents=[*indexed_results, *duplicates],
         total_chunks_indexed=total_chunks,
-        duplicates_skipped=skipped,
+        duplicates_skipped=len(files) - len(indexed_results),
     )
 
 

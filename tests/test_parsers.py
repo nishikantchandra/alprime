@@ -2,9 +2,9 @@
 
 import io
 
+import pytest
 from docx import Document as DocxDocument
 from fpdf import FPDF
-import pytest
 
 from app.core.exceptions import (
     DocumentParsingError,

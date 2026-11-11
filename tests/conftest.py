@@ -1,8 +1,8 @@
 """Shared deterministic offline test doubles for Qdrant vector store and LLMs."""
 
-from collections.abc import AsyncIterator
 import math
 import re
+from collections.abc import AsyncIterator
 
 from qdrant_client import QdrantClient
 
@@ -119,11 +119,7 @@ class FakeLLMClient(LLMClient):
                 "reasoning": reasoning,
             }
         )
-        chunks = (
-            self._stream_chunks
-            if self._stream_chunks is not None
-            else [self._responses[0]]
-        )
+        chunks = self._stream_chunks if self._stream_chunks is not None else [self._responses[0]]
         for piece in chunks:
             yield piece
 

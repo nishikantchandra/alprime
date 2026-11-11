@@ -31,7 +31,7 @@ Step-by-step setup instructions, with free key links and troubleshooting, are in
    - *"Why did revenue decline by 14.5% in Q3 2026?"* (it grew; the false premise is corrected)
    - *"Who approves a purchase of exactly KWD 5,000?"* (band edge: the Finance Director)
    - *"Did AlPrime achieve KWD 1,950,000 revenue in Q4 2026?"* (that figure is a target, not a result)
-   - *"If a client needs 120 analyst hours, what is the monthly cost?"* (1,850 + 40 × 35 = KWD 3,250, labelled as calculated)
+   - *"If a client needs 120 analyst hours a month, is the Fractional CFO tier enough and what would the total monthly cost be?"* (no: 1,850 + 40 × 35 = KWD 3,250, labelled as calculated)
    - *"Who is the CEO?"* (refused: not in the documents)
 4. Run the offline tests: `pip install -r requirements-dev.txt && pytest -q`.
 5. Re-run the evaluation yourself: `python scripts/trap_eval.py --upload` regenerates the trap report from your own run.
@@ -55,6 +55,7 @@ Step-by-step setup instructions, with free key links and troubleshooting, are in
 | Bonus: streaming chat UI | `../static/`, served at `/` |
 | Bonus: Docker and Compose | `../Dockerfile`, `../docker-compose.yml` |
 | Bonus: multi-turn sessions, transcript export, API-key auth, per-query tracing | `../README.md` (Key Features, Observability) |
+| Sample exported conversation transcript | `./Conversations-sample-alprime-transcript-a381715a.md` |
 
 ---
 

@@ -1,7 +1,7 @@
 """Recursive text splitter preserving exact document and page provenance."""
 
-from dataclasses import dataclass
 import uuid
+from dataclasses import dataclass
 
 from app.services.document_parser import ParsedSection
 
@@ -90,9 +90,7 @@ def split_text_recursive(
                 chunks.append(emitted)
 
             # Retain up to chunk_overlap tail characters that still leave room for `unit`.
-            while current_parts and (
-                current_len > chunk_overlap or (current_len + len(unit) > chunk_size)
-            ):
+            while current_parts and (current_len > chunk_overlap or (current_len + len(unit) > chunk_size)):
                 removed = current_parts.pop(0)
                 current_len -= len(removed)
 

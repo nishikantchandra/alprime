@@ -8,9 +8,7 @@ from app.services.text_splitter import chunk_parsed_sections, split_text_recursi
 
 def test_split_short_and_empty_text() -> None:
     assert split_text_recursive("   \n\n  ") == []
-    assert split_text_recursive("Short sentence.", chunk_size=200, chunk_overlap=50) == [
-        "Short sentence."
-    ]
+    assert split_text_recursive("Short sentence.", chunk_size=200, chunk_overlap=50) == ["Short sentence."]
 
 
 def test_split_preserves_overlap_and_size_bounds() -> None:
@@ -21,7 +19,9 @@ def test_split_preserves_overlap_and_size_bounds() -> None:
     assert len(chunks) > 2
     assert all(len(c) <= 220 for c in chunks)
     # Adjacent chunks should share overlapping content.
-    overlap_found = any(chunks[i][-30:] in chunks[i + 1] or chunks[i + 1][:30] in chunks[i] for i in range(len(chunks) - 1))
+    overlap_found = any(
+        chunks[i][-30:] in chunks[i + 1] or chunks[i + 1][:30] in chunks[i] for i in range(len(chunks) - 1)
+    )
     assert overlap_found
 
 

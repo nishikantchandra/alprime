@@ -69,7 +69,10 @@ class QueryResponse(BaseModel):
     )
     refusal_reason: str | None = Field(
         default=None,
-        description="Specific reason when not_found (no_documents_indexed, selected_documents_missing, low_retrieval_relevance, insufficient_document_evidence).",
+        description=(
+            "Specific reason when not_found (no_documents_indexed, selected_documents_missing, "
+            "low_retrieval_relevance, insufficient_document_evidence)."
+        ),
     )
     status_detail: str | None = Field(
         default=None,

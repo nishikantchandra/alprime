@@ -1,13 +1,15 @@
 """Tests for RAG retrieval, document scoping, multi-turn history, and SSE streaming."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from app.core.exceptions import LLMConfigurationError
 from app.schemas.query import QueryRequest
 from app.services.document_parser import ParsedSection
 from app.services.prompts import NO_INFO_SENTINEL, NO_INFO_USER_MESSAGE
-from app.services.rag_service import RagService, is_document_overview_query
+from app.services.query_intent import is_document_overview_query
+from app.services.rag_service import RagService
 from app.services.session_store import InMemorySessionStore
 from app.services.text_splitter import chunk_parsed_sections
 from tests.conftest import FakeCrossEncoder, FakeLLMClient, make_memory_vector_store, make_test_settings
@@ -50,9 +52,7 @@ async def test_grounded_query_returns_answer_and_citations() -> None:
     )
     rag = RagService(vector_store=store, llm_client=llm, session_store=InMemorySessionStore())
 
-    resp = await rag.answer_question(
-        QueryRequest(question="What was Q3 2026 consolidated revenue?")
-    )
+    resp = await rag.answer_question(QueryRequest(question="What was Q3 2026 consolidated revenue?"))
 
     assert resp.is_found is True
     assert "1,840,000" in resp.answer
@@ -95,9 +95,7 @@ async def test_session_history_condenses_follow_up_query() -> None:
     sessions = InMemorySessionStore()
     rag = RagService(vector_store=store, llm_client=llm, session_store=sessions)
 
-    await rag.answer_question(
-        QueryRequest(question="What was AlPrime Q3 2026 revenue?", session_id="s-1")
-    )
+    await rag.answer_question(QueryRequest(question="What was AlPrime Q3 2026 revenue?", session_id="s-1"))
     follow_up = await rag.answer_question(
         QueryRequest(question="And what was its operating margin?", session_id="s-1")
     )
@@ -120,9 +118,7 @@ async def test_streaming_intercepts_negative_sentinel_without_leaking_token() ->
 
     events = [
         ev
-        async for ev in rag.stream_question(
-            QueryRequest(question="What was Q3 2026 consolidated revenue?")
-        )
+        async for ev in rag.stream_question(QueryRequest(question="What was Q3 2026 consolidated revenue?"))
     ]
 
     token_texts = [e["data"]["text"] for e in events if e["event"] == "token"]
@@ -232,9 +228,7 @@ async def test_overview_query_retrieves_lead_chunks_even_when_reranker_scores_lo
     settings = make_test_settings(min_vector_score=0.95, min_rerank_score=5.0)
     store = make_memory_vector_store(settings, reranker=FakeCrossEncoder(forced_scores=[-11.0]))
     _seed_store(store)
-    llm = FakeLLMClient(
-        responses=["This document summarizes advisory fees [Source: fees.docx | Page 1]."]
-    )
+    llm = FakeLLMClient(responses=["This document summarizes advisory fees [Source: fees.docx | Page 1]."])
     rag = RagService(vector_store=store, llm_client=llm, session_store=InMemorySessionStore())
 
     resp = await rag.answer_question(
@@ -309,7 +303,7 @@ async def test_distinct_refusal_reasons_across_empty_kb_gates_and_llm() -> None:
 @pytest.mark.asyncio
 async def test_mid_conversation_new_upload_resets_stale_scope_and_answers_new_doc() -> None:
     store = make_memory_vector_store(make_test_settings(min_vector_score=0.0, min_rerank_score=-50.0))
-    t0 = datetime(2026, 11, 11, 10, 0, tzinfo=timezone.utc)
+    t0 = datetime(2026, 11, 11, 10, 0, tzinfo=UTC)
     fin_chunks = chunk_parsed_sections(
         [ParsedSection(text="Q3 revenue was 1,840,000 KWD.", page_number=1, source_filename="q3.pdf")],
         doc_id="doc-fin",
@@ -330,7 +324,13 @@ async def test_mid_conversation_new_upload_resets_stale_scope_and_answers_new_do
 
     # Upload a brand-new doc mid-conversation under same session_id
     kyc_chunks = chunk_parsed_sections(
-        [ParsedSection(text="High-risk KYC escalation SLA is 1 business day.", page_number=1, source_filename="kyc.txt")],
+        [
+            ParsedSection(
+                text="High-risk KYC escalation SLA is 1 business day.",
+                page_number=1,
+                source_filename="kyc.txt",
+            )
+        ],
         doc_id="doc-kyc",
         file_type="txt",
     )
@@ -346,9 +346,7 @@ async def test_mid_conversation_new_upload_resets_stale_scope_and_answers_new_do
     assert all("Conversation History" not in str(c["user_prompt"]) for c in llm.calls[:2])
 
     # A topic query containing "new" (not referring to a new file) must still search ALL docs.
-    await rag.answer_question(
-        QueryRequest(question="What does revenue under new compliance rules say?")
-    )
+    await rag.answer_question(QueryRequest(question="What does revenue under new compliance rules say?"))
     assert "q3.pdf" in str(llm.calls[2]["user_prompt"])
 
 
@@ -417,7 +415,11 @@ async def test_stream_does_not_retract_answer_when_sentinel_appears_late() -> No
     store = make_memory_vector_store()
     _seed_store(store)
     llm = FakeLLMClient(
-        stream_chunks=["Revenue was KWD 1,840,000 [1]. ", "Partnerships are not covered. NO_RELEVANT_", "INFO_FOUND"]
+        stream_chunks=[
+            "Revenue was KWD 1,840,000 [1]. ",
+            "Partnerships are not covered. NO_RELEVANT_",
+            "INFO_FOUND",
+        ]
     )
     rag = RagService(vector_store=store, llm_client=llm, session_store=InMemorySessionStore())
 

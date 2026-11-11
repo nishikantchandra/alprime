@@ -33,59 +33,106 @@ A production-grade Retrieval-Augmented Generation (RAG) REST API and interactive
 
 ## Project Architecture
 
+The codebase follows a clean layered separation: **API Transport & Auth** (`app/api/`, `app/core/`) → **Pydantic Contracts** (`app/schemas/`) → **AI / RAG Orchestration Services** (`app/services/`) → **Vector Store & LLM Providers**.
+
+```mermaid
+flowchart TB
+    subgraph Clients["Clients & Consumers"]
+        UI["Web Chat & Upload UI (/)"]
+        Swagger["Swagger / ReDoc (/docs)"]
+        Postman["Postman / cURL / SDKs"]
+    end
+
+    subgraph API["FastAPI Layer (app/main.py & app/api/)"]
+        Security["X-API-Key Guard & CORS"]
+        Errors["Typed Exception Mapper (400 / 401 / 404 / 413 / 422 / 502 / 503)"]
+        DocRouter["Documents Router (/api/v1/documents/*)"]
+        QueryRouter["Query, SSE & Session Router (/api/v1/query*, /sessions/*)"]
+    end
+
+    subgraph AI["AI & RAG Services (app/services/)"]
+        Parser["Document Parser (PDF / DOCX Tables / TXT)"]
+        Splitter["Recursive Chunker (800 chars / 150 overlap)"]
+        Intent["Query Intent & Overview Classifier"]
+        RAG["RagService (5-Layer Guardrails + Streaming Commit Gate)"]
+        Citations["Citation Normalizer & Sentinel Holdback"]
+        Replies["Templated Refusals & Greetings"]
+        Sessions["InMemorySessionStore (Prompt Scope + Export Transcript)"]
+        Trace["QueryTrace (app/core/tracing.py JSON Logs)"]
+    end
+
+    subgraph Infra["Storage & Model Inference"]
+        Embed["Local FastEmbed ONNX (bge-small-en-v1.5 + ms-marco-MiniLM-L-6-v2)"]
+        Qdrant["Qdrant Vector Store (Embedded Disk or Docker Qdrant Server)"]
+        Router["RoutingLLMClient (Runware DeepSeek -> Gemini -> Groq Qwen)"]
+    end
+
+    UI --> Security
+    Swagger --> Security
+    Postman --> Security
+    Security --> DocRouter
+    Security --> QueryRouter
+    DocRouter --> Errors
+    QueryRouter --> Errors
+
+    DocRouter --> Parser --> Splitter --> Embed --> Qdrant
+    QueryRouter --> RAG
+    RAG --> Intent
+    RAG --> Sessions
+    RAG --> Embed
+    RAG --> Qdrant
+    RAG --> Router
+    RAG --> Citations
+    RAG --> Replies
+    RAG --> Trace
 ```
-                         +-----------------------------+
-                         |  Clients (Web UI / Swagger  |
-                         |   / Postman / REST Calls)   |
-                         +--------------+--------------+
-                                        |
-                                        v
-+-------------------------------------------------------------------------------+
-| FastAPI Application (app/main.py)                                             |
-|  - X-API-Key Auth Guard (app/core/security.py)                                |
-|  - Typed Error Handlers (400 / 401 / 404 / 413 / 422 / 502 / 503)             |
-+-------+---------------------------------------------------------------+-------+
-        | Ingestion (/api/v1/documents/upload)                          | Query (/api/v1/query & /stream)
-        v                                                               v
-+-------------------------------+                       +----------------------------------+
-| Document Parser               |                       | Layer 0: Multi-Turn Condenser    |
-| (document_parser.py)          |                       | Rewrites follow-up; searches the |
-|                               |                       | rewrite AND the original wording |
-| - PDF per-page text           |                       +-----------------+----------------+
-| - DOCX paragraphs + MD tables |                                         |
-| - TXT UTF-8/CP1252 + bin check|                                         v
-+-------+-----------------------+                       +----------------------------------+
-        |                                               | Layer 1: Qdrant Empty-KB Check   |
-        v                                               | & FastEmbed Query Embedding      |
-+-------------------------------+                       +-----------------+----------------+
-| Recursive Chunker             |                                         |
-| (text_splitter.py)            |                                         v
-| 800 chars / 150 overlap       |                       +----------------------------------+
-+-------+-----------------------+                       | Layer 2: Vector Search (top-10)  |
-        |                                               | Gate: MIN_VECTOR_SCORE >= 0.45   |
-        v                                               +-----------------+----------------+
-+-------------------------------+                                         |
-| QdrantVectorStore             |                                         v
-| - FastEmbed ONNX Embeddings   |                       +----------------------------------+
-| - Embedded Disk OR Qdrant Srv |<======================| Layer 3: Cross-Encoder Reranker  |
-+-------------------------------+                       | ms-marco-MiniLM-L-6-v2 (top-6)   |
-                                                        | + best 2-sentence window rescore |
-                                                        | Gate: MIN_RERANK_SCORE >= -6.0   |
-                                                        +-----------------+----------------+
-                                                                          |
-                                                                          v
-                                                        +----------------------------------+
-                                                        | Layer 4: Grounded Synthesis      |
-                                                        | Temp=0.0 + <document_context>    |
-                                                        | XML Boundary + Citation Rules    |
-                                                        +-----------------+----------------+
-                                                                          |
-                                                                          v
-                                                        +----------------------------------+
-                                                        | Layer 5: Sentinel Verification   |
-                                                        | Rejects NO_RELEVANT_INFO_FOUND   |
-                                                        | Returns Safe Refusal or Citations|
-                                                        +----------------------------------+
+
+### AI Pipeline 1: Document Ingestion, Deduplication & Atomic Indexing
+
+```mermaid
+flowchart LR
+    Upload["POST /api/v1/documents/upload (PDF, DOCX, TXT)"] --> Validate["Check File Count (<= 10) & Streaming Size (<= 20 MB)"]
+    Validate --> Hash["Compute SHA-256 Digest"]
+    Hash --> Dedup{"Already Indexed?"}
+    Dedup -- "Yes" --> Skip["Return status: already_indexed (HTTP 200 if all dupes)"]
+    Dedup -- "No" --> Parse["Extract Per-Page Text & DOCX Markdown Tables"]
+    Parse --> NonEmpty{"Extractable Text Found?"}
+    NonEmpty -- "No / Corrupt / Scanned" --> Err422["Raise EmptyDocumentError / DocumentParsingError (HTTP 422)"]
+    NonEmpty -- "Yes" --> Chunk["Recursive Split (800 chars, 150 overlap, doc_id + page metadata)"]
+    Chunk --> Vec["Embed Passages locally (bge-small-en-v1.5 ONNX)"]
+    Vec --> Upsert{"Upsert Batch into Qdrant"}
+    Upsert -- "Fails Mid-Batch" --> Rollback["Atomic Rollback: Delete Indexed Batch Docs"]
+    Upsert -- "Success" --> Done201["Return doc_id, pages, chunk_count (HTTP 201)"]
+```
+
+### AI Pipeline 2: 5-Layer Anti-Hallucination RAG & Streaming Execution
+
+```mermaid
+flowchart TD
+    Q["User Question + Optional session_id / doc_ids"] --> Conv{"Pure Small Talk?"}
+    Conv -- "Greeting / Thanks / Help" --> TemplatedHi["Templated Reply + Loaded File Count (No LLM Call)"]
+    Conv -- "Factual Query" --> Scope["Layer 1: Resolve Active & Recency Doc Scope"]
+    Scope --> HasDocs{"Indexed / Selected Chunks Exist?"}
+    HasDocs -- "No" --> Ref1["Templated Refusal (no_documents_indexed / selected_documents_missing)"]
+    HasDocs -- "Yes" --> IntentCheck{"Whole-Doc Overview or Topic Query?"}
+
+    IntentCheck -- "Overview Prompt" --> Lead["Fetch Lead Opening Chunks Per Doc + Semantic Search"]
+    IntentCheck -- "Topic Query" --> Hist{"Prior Turns in Session Scope?"}
+    Hist -- "Yes" --> Condense["Rewrite Follow-Up (Thinking Off) -> Dual Search: Rewrite + Original"]
+    Hist -- "No" --> Dense["Dense Vector Search (Qdrant top-10)"]
+    Condense --> Dense
+
+    Dense --> Gate2{"Layer 2: Cosine Similarity >= 0.45?"}
+    Lead --> Gate3
+    Gate2 -- "No Candidates" --> Ref2["Templated Refusal (low_retrieval_relevance, 0 LLM Calls)"]
+    Gate2 -- "Pass" --> Gate3["Layer 3: Cross-Encoder Rerank + MaxP 2-Sentence Window + Lexical Rescue (Gate >= -6.0)"]
+    Gate3 -- "0 Chunks Pass" --> Ref2
+
+    Gate3 -- "Top-6 Passages" --> Prompt["Layer 4: Wrap Chunks in XML Boundaries (Temp = 0.0) + Route LLM"]
+    Prompt --> Commit["Layer 5: Stream Holdback Buffer (Sentinel Check + 160-Char / Citation Commit Gate)"]
+    Commit -- "NO_RELEVANT_INFO_FOUND" --> Ref3["Templated Refusal Naming Searched Docs (insufficient_document_evidence)"]
+    Commit -- "Grounded Answer" --> Norm["Unwrap Code Ticks, Renumber Compact Citations, Narrow Source List"]
+    Norm --> Save["Record Session Scope + Exportable Transcript + Emit JSON QueryTrace"]
 ```
 
 ---
@@ -123,6 +170,24 @@ All prompts controlling runtime RAG behavior live in `app/services/prompts.py`:
 ### LLM Routing & Fallback
 
 `app/services/llm_client.py` wraps every provider in a single `RoutingLLMClient`:
+
+```mermaid
+flowchart LR
+    Req["Grounded Prompt + Context"] --> Classify{"Query Complexity"}
+    Classify -- "Follow-up Rewrite" --> ChainLight["Runware DeepSeek (Think Off) -> Gemini -> Groq Qwen"]
+    Classify -- "Simple Fact Lookup" --> ChainLow["Runware DeepSeek (Low Reasoning) -> Gemini -> Groq Qwen"]
+    Classify -- "Analytical / Compare / Calc / Multi-Part" --> ChainHigh["Runware DeepSeek (High Reasoning, 4096 Tokens) -> Gemini -> Groq Qwen"]
+
+    ChainLight --> Exec["Execute Provider Call (Strip Reasoning / Think Blocks)"]
+    ChainLow --> Exec
+    ChainHigh --> Exec
+
+    Exec --> FailCheck{"Quota / 5xx / Empty Stream / 20s Stall Before First Token?"}
+    FailCheck -- "Yes (0 Visible Tokens Sent)" --> Next["Automatic Failover to Next Configured Provider"]
+    Next --> Exec
+    FailCheck -- "All Providers Exhausted" --> Err502["HTTP 502 llm_provider_error / SSE error Event"]
+    FailCheck -- "Answer Streamed" --> Out["Clean Grounded Output + Token Metrics Recorded"]
+```
 
 | Question type | Order tried | Model mode |
 | :--- | :--- | :--- |
@@ -272,6 +337,7 @@ Prerequisites: Python `3.11+` (`3.12` recommended).
 ```bash
 pip install -r requirements-dev.txt
 pytest -v
+ruff check . && ruff format --check .   # lint, import order, complexity and formatting (config in pyproject.toml)
 ```
 This executes 86 tests covering:
 - Multi-page PDF parsing, DOCX table-to-Markdown conversion, TXT encoding & binary checks (`tests/test_parsers.py`)
@@ -350,6 +416,25 @@ Latest run: see [`deliverables/TRAP_QUESTION_EVALUATION.md`](deliverables/TRAP_Q
 | `GET` | `/api/v1/sessions/{session_id}/export` | Downloadable conversation transcript (`?format=markdown\|json`) with citations |
 | `DELETE` | `/api/v1/sessions/{session_id}` | Clear in-memory conversation history and transcript for a session |
 
+### API Design Principles & Error Contract
+
+- **RESTful Resource Versioning:** Endpoints live under `/api/v1/` with OpenAPI 3.1 schemas served live at `/docs` & `/redoc` and exported cleanly to `deliverables/api_docs/openapi.json` and Postman (`postman_collection.json`).
+- **Predictable Query Discriminators:** Every `/api/v1/query` response carries `response_type` (`"grounded"`, `"not_found"`, `"conversational"`), boolean `is_found`, structured `citations`, optional `refusal_reason` (`"no_documents_indexed"`, `"selected_documents_missing"`, `"low_retrieval_relevance"`, `"insufficient_document_evidence"`), and `status_detail`.
+- **SSE Event Protocol (`/api/v1/query/stream`):** `status` (stage updates) → `citations` (retrieved / narrowed metadata) → `token` (display deltas after passing sentinel commit gate) → `done` (final normalized text, timing, and outcome metadata) or `error` (typed failure without internal stack trace leakage).
+- **Typed HTTP Status & Error Mapping (`app/core/exceptions.py`):**
+
+| Status Code | Error Code / Cause | Where Handled |
+| :---: | :--- | :--- |
+| `200` | Successful read / query / duplicate upload skip (`already_indexed`) | Query, Document List, Deduplicated Upload |
+| `201` | New document(s) parsed, chunked, embedded & indexed in Qdrant | `POST /api/v1/documents/upload` |
+| `400` | Unsupported file extension (non-PDF/DOCX/TXT) | `UnsupportedFormatError` |
+| `401` | Missing or invalid `X-API-Key` when `AUTH_ENABLED=true` | `verify_api_key` |
+| `404` | Unknown `doc_id` or missing/empty `session_id` on export/delete | `DocumentNotFoundError` / Session Routes |
+| `413` | File exceeds `MAX_UPLOAD_MB` or batch exceeds `MAX_UPLOAD_FILES` | `FileTooLargeError` / `TooManyFilesError` |
+| `422` | Empty, blank, corrupt, or scanned image-only PDF; Pydantic validation error | `EmptyDocumentError` / `DocumentParsingError` |
+| `502` | All configured upstream LLM providers failed or returned invalid responses | `LLMProviderError` |
+| `503` | Vector DB unavailable or no LLM API key configured for generation | `VectorStoreError` / `LLMConfigurationError` |
+
 ---
 
 ## Project Structure
@@ -359,9 +444,9 @@ Latest run: see [`deliverables/TRAP_QUESTION_EVALUATION.md`](deliverables/TRAP_Q
 ├── app/
 │   ├── api/
 │   │   ├── endpoints/
-│   │   │   ├── documents.py      # Upload, list, delete, reset endpoints
+│   │   │   ├── documents.py      # Upload (SHA-256 dedup + atomic rollback), list, delete, reset
 │   │   │   ├── health.py         # Health & readiness diagnostics
-│   │   │   └── query.py          # Grounded JSON query, SSE stream, session reset
+│   │   │   └── query.py          # Grounded JSON query, SSE stream, transcript export & session delete
 │   │   ├── dependencies.py       # FastAPI DI helpers backed by app.state
 │   │   └── router.py             # API router aggregator
 │   ├── core/
@@ -371,15 +456,18 @@ Latest run: see [`deliverables/TRAP_QUESTION_EVALUATION.md`](deliverables/TRAP_Q
 │   │   └── security.py           # Optional X-API-Key dependency
 │   ├── schemas/
 │   │   ├── document.py           # Upload & inventory Pydantic models
-│   │   └── query.py              # Query request, Citation, and QueryResponse schemas
+│   │   └── query.py              # Query request, Citation, QueryResponse & Transcript schemas
 │   ├── services/
+│   │   ├── citations.py          # Sentinel holdback, compact [1] normalization, source filtering
 │   │   ├── document_parser.py    # PDF, DOCX (paragraphs + Markdown tables), TXT extractors
 │   │   ├── llm_client.py         # Runware (DeepSeek), Gemini, Groq (Qwen), OpenAI-compatible clients + failover/reasoning router
 │   │   ├── prompts.py            # Grounded QA system prompt, XML wrappers, sentinel
+│   │   ├── query_intent.py       # Conversational, overview, recency-doc & reasoning classifiers
 │   │   ├── rag_service.py        # 5-layer anti-hallucination orchestrator & streaming
-│   │   ├── session_store.py      # Thread-safe LRU in-memory session history
+│   │   ├── replies.py            # Templated, non-hallucinating refusal & greeting builders
+│   │   ├── session_store.py      # Thread-safe LRU in-memory session context & export transcript store
 │   │   ├── text_splitter.py      # Recursive overlap splitter preserving page metadata
-│   │   └── vector_store.py       # Qdrant client + FastEmbed embeddings & cross-encoder
+│   │   └── vector_store.py       # Qdrant client + FastEmbed embeddings, cross-encoder & window rescoring
 │   ├── config.py                 # Pydantic-settings configuration
 │   └── main.py                   # App factory, lifespan, exception handler, static mount
 ├── deliverables/                 # Exported API specs, cURL walkthrough & calibration report
@@ -397,13 +485,15 @@ Latest run: see [`deliverables/TRAP_QUESTION_EVALUATION.md`](deliverables/TRAP_Q
 │   ├── trap_eval.py              # Live adversarial evaluation with rule-based grading
 │   └── package_submission.py     # Builds the clean submission zip (secret-scanned, no .env)
 ├── static/                       # Embedded Web Chat & Upload UI (HTML/CSS/JS)
-├── tests/                        # Offline unit, hallucination, and endpoint pytest suite
+├── tests/                        # Offline unit, hallucination, window-rerank, tracing & endpoint pytest suite (86 tests)
 ├── .env.example                  # Documented environment template
 ├── .gitignore
 ├── .dockerignore
 ├── Dockerfile
 ├── docker-compose.yml
 ├── postman_collection.json
+├── pyproject.toml                # Ruff lint/format and pytest configuration
+├── QUICKSTART.md                 # 10-minute setup & key guide
 ├── requirements.txt              # Runtime dependencies
 ├── requirements-dev.txt          # + test & sample-generation tools
 ├── requirements-lock.txt         # Exact verified versions
