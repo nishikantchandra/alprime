@@ -2,7 +2,11 @@
 
 A production-grade Retrieval-Augmented Generation (RAG) REST API and interactive Web UI built with FastAPI, Qdrant, and FastEmbed. Designed for financial and corporate document workflows, the assistant lets users upload PDF, DOCX (including structured tables), and TXT files and answers questions exclusively from uploaded content with inline citations, source snippets, and a multi-layer anti-hallucination guardrail pipeline.
 
-> New here? Follow the [Quick Start Guide](QUICKSTART.md) to run the app in about 10 minutes. You need Docker or Python 3.11+, plus one LLM API key of your own. Free keys from Google Gemini or Groq work. No keys are included in this repository.
+> [!TIP]
+> **Two Ways to Run Locally (Docker Is Optional!):**
+> - **Option A — Local Python Only (Zero Docker Required):** Qdrant runs automatically in **embedded local disk mode** (`./data/qdrant` inside Python) and FastEmbed runs locally on CPU—just install `requirements.txt`, add one LLM key in `.env`, and run `uvicorn app.main:app --port 8000`.
+> - **Option B — Docker Compose:** Run `docker compose up --build` for an isolated `api` + standalone `qdrant` container stack with models pre-cached.
+> - **10-Minute Reviewer Guide:** See [QUICKSTART.md](QUICKSTART.md) or jump directly to [Setup & Installation](#setup--installation). No API keys are committed in Git—place your `.env` (or emailed key file renamed to `.env`) in the project root before starting.
 
 ---
 
@@ -34,6 +38,10 @@ A production-grade Retrieval-Augmented Generation (RAG) REST API and interactive
 ## Project Architecture
 
 The codebase follows a clean layered separation: **API Transport & Auth** (`app/api/`, `app/core/`) → **Pydantic Contracts** (`app/schemas/`) → **AI / RAG Orchestration Services** (`app/services/`) → **Vector Store & LLM Providers**.
+
+![System Architecture, Project Structure & REST API Design](deliverables/diagrams/01_system_and_api_architecture.png)
+
+*Offline/plain-text fallback: [deliverables/diagrams/ARCHITECTURE_FLOWCHARTS.txt](deliverables/diagrams/ARCHITECTURE_FLOWCHARTS.txt) (regenerate images with `python scripts/generate_diagrams.py`).*
 
 ```mermaid
 flowchart TB
@@ -135,6 +143,8 @@ flowchart TD
     Norm --> Save["Record Session Scope + Exportable Transcript + Emit JSON QueryTrace"]
 ```
 
+![AI Pipelines: Document Ingestion & 5-Layer Anti-Hallucination RAG](deliverables/diagrams/02_rag_and_guardrails_pipeline.png)
+
 ---
 
 ## Anti-Hallucination Design & Empirical Calibration
@@ -170,6 +180,8 @@ All prompts controlling runtime RAG behavior live in `app/services/prompts.py`:
 ### LLM Routing & Fallback
 
 `app/services/llm_client.py` wraps every provider in a single `RoutingLLMClient`:
+
+![Multi-Provider LLM Routing, SSE Streaming & API Contract](deliverables/diagrams/03_llm_routing_and_api_lifecycle.png)
 
 ```mermaid
 flowchart LR
@@ -250,84 +262,97 @@ Filter the traces with `docker compose logs api | grep query_trace`.
 
 ## Setup & Installation
 
-### Option 1: Local Python Setup (Recommended — Zero External Infra Required)
+> [!IMPORTANT]
+> **Do you need Docker Engine locally for Qdrant?**
+> **No.** When `QDRANT_URL` is left empty (the default in `.env.example`), `qdrant-client` embeds Qdrant directly inside Python using persistent disk storage at `./data/qdrant`, and `fastembed` runs embeddings & cross-encoder reranking locally on CPU. Use **Option 1** if you just have Python, or **Option 2** if you prefer Docker Compose.
 
-Prerequisites: Python `3.11+` (`3.12` recommended).
+### Option 1: Local Python Setup (No Docker Required)
 
-1. Clone the repository and navigate into the project root:
+**Prerequisites:** Python `3.11+` (`3.12` recommended).
+
+1. **Clone the repository (or unzip the submission archive) and enter the folder:**
    ```bash
    git clone https://github.com/nishikantchandra/alprime.git
    cd alprime
    ```
 
-2. Create and activate a virtual environment:
-   - Windows (PowerShell):
+2. **Create and activate a virtual environment:**
+   - **Windows (PowerShell):**
      ```powershell
      python -m venv .venv
      .\.venv\Scripts\Activate.ps1
      ```
-   - macOS / Linux:
+   - **macOS / Linux:**
      ```bash
      python3 -m venv .venv
      source .venv/bin/activate
      ```
 
-3. Install dependencies:
+3. **Install dependencies:**
    ```bash
    pip install -r requirements.txt          # runtime only
-   pip install -r requirements-dev.txt      # + pytest & sample-doc generator
-   # or reproduce the exact verified environment:
+   pip install -r requirements-dev.txt      # + pytest, ruff & sample-doc generator
+   # or reproduce exact verified versions:
    pip install -r requirements-lock.txt
    ```
 
-4. Configure environment variables:
-   Copy `.env.example` to `.env` and add your LLM API key:
-   ```bash
-   cp .env.example .env
-   ```
-   - Recommended — Runware DeepSeek primary/reasoning + Gemini and Groq fallbacks:
-     ```ini
-     LLM_PROVIDER="runware"
-     LLM_FALLBACK_PROVIDERS="gemini,groq"
-     ENABLE_REASONING_ROUTING=true
-     REASONING_PROVIDER="runware"
-     RUNWARE_API_KEY="your-runware-api-key"
-     RUNWARE_MODEL="deepseek:v4.1@flash-1017"
-     GEMINI_API_KEY="your-gemini-api-key"
-     GEMINI_MODEL="gemini-3.5-flash-lite"
-     GROQ_API_KEY="your-groq-api-key"
-     GROQ_MODEL="qwen/qwen3.8-27b"
+4. **Configure `.env` (API keys):**
+   - If an environment file was shared with the submission via email, save/rename it as `.env` in the project root.
+   - Otherwise copy `.env.example` to `.env`:
+     ```powershell
+     # Windows (PowerShell)
+     copy .env.example .env
      ```
-     Only one key is required; with a single key every request goes to that provider.
-   - Other OpenAI-compatible endpoints (OpenAI, OpenRouter, Ollama):
-     ```ini
-     LLM_PROVIDER="openai_compatible"     # or add it to LLM_FALLBACK_PROVIDERS
-     LLM_API_KEY="your-provider-api-key"
-     LLM_BASE_URL="https://api.openai.com/v1"
-     LLM_MODEL="your-chat-model-id"
+     ```bash
+     # macOS / Linux
+     cp .env.example .env
      ```
+     Then paste **any one** LLM API key into `.env` (Leave `QDRANT_URL=""` so embedded Qdrant runs automatically):
+     - **Recommended — Runware DeepSeek primary/reasoning + Gemini and Groq fallbacks:**
+       ```ini
+       LLM_PROVIDER="runware"
+       LLM_FALLBACK_PROVIDERS="gemini,groq"
+       ENABLE_REASONING_ROUTING=true
+       REASONING_PROVIDER="runware"
+       RUNWARE_API_KEY="your-runware-api-key"
+       RUNWARE_MODEL="deepseek:v4.1@flash-1017"
+       GEMINI_API_KEY="your-gemini-api-key"
+       GEMINI_MODEL="gemini-3.5-flash-lite"
+       GROQ_API_KEY="your-groq-api-key"
+       GROQ_MODEL="qwen/qwen3.8-27b"
+       ```
+     - **Any other OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama):**
+       ```ini
+       LLM_PROVIDER="openai_compatible"
+       LLM_API_KEY="your-provider-api-key"
+       LLM_BASE_URL="https://api.openai.com/v1"
+       LLM_MODEL="your-chat-model-id"
+       ```
 
-5. Run the FastAPI server:
+5. **Start the server:**
    ```bash
-   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
-   - Web Interface: http://localhost:8000
-   - Interactive Swagger UI: http://localhost:8000/docs
-   - ReDoc: http://localhost:8000/redoc
+   *(Add `--reload` during local development.)*
+   - **Web Chat & Upload UI:** http://localhost:8000
+   - **Interactive Swagger Docs:** http://localhost:8000/docs
+   - **ReDoc:** http://localhost:8000/redoc
 
 ---
 
-### Option 2: Docker & Docker Compose Setup (API + Persistent Qdrant Server)
+### Option 2: Docker & Docker Compose Setup (Containerized API + Standalone Qdrant Server)
 
-1. Ensure `.env` exists (`cp .env.example .env` with your LLM API key).
+**Prerequisites:** Docker Desktop / Docker Engine running locally.
+
+1. Place your `.env` file in the project root (`cp .env.example .env` + your LLM key). *(Compose automatically sets `QDRANT_URL="http://qdrant:6333"` inside the container network.)*
 2. Build and start both containers:
    ```bash
    docker compose up --build
    ```
    This starts:
-   - `api` on `http://localhost:8000` (with ONNX models pre-cached inside the image)
-   - `qdrant` (`qdrant/qdrant:v1.20.0`) bound to `127.0.0.1:6333` only, persisting vectors in Docker volume `qdrant_storage`; set `QDRANT_API_KEY` in `.env` to require a key for it too
-   - The API container runs as an unprivileged `app` user
+   - `api` on `http://localhost:8000` (runs as unprivileged `app` user with ONNX models pre-cached)
+   - `qdrant` (`qdrant/qdrant:v1.20.0`) bound to `127.0.0.1:6333` only, persisting vectors in volume `qdrant_storage` (set `QDRANT_API_KEY` in `.env` if you want DB auth too)
+3. Stop with `Ctrl + C` or `docker compose down`.
 
 ---
 
@@ -475,12 +500,18 @@ Latest run: see [`deliverables/TRAP_QUESTION_EVALUATION.md`](deliverables/TRAP_Q
 │   │   ├── API_WALKTHROUGH.md
 │   │   ├── openapi.json
 │   │   └── postman_collection.json
+│   ├── diagrams/                 # PNG + plain-text ASCII architecture & pipeline flowcharts
+│   │   ├── 01_system_and_api_architecture.png
+│   │   ├── 02_rag_and_guardrails_pipeline.png
+│   │   ├── 03_llm_routing_and_api_lifecycle.png
+│   │   └── ARCHITECTURE_FLOWCHARTS.txt
 │   ├── README.md                 # Submission index: where every deliverable lives
 │   ├── TRAP_QUESTION_EVALUATION.md   # Generated: 61 graded trap questions, live run
 │   ├── trap_eval_results.json    # Raw answers, scores and timings behind that report
 │   └── VERIFICATION_AND_CALIBRATION_REPORT.md
 ├── sample_docs/                  # 6 finance test files (PDF, DOCX, TXT), 3 with planted traps
 ├── scripts/
+│   ├── generate_diagrams.py      # Renders architecture/pipeline PNGs + ASCII flowcharts
 │   ├── generate_sample_docs.py   # Reproducible generator for sample_docs/
 │   ├── trap_eval.py              # Live adversarial evaluation with rule-based grading
 │   └── package_submission.py     # Builds the clean submission zip (secret-scanned, no .env)

@@ -36,33 +36,15 @@
         "summary": "Upload and index one or more documents (PDF, DOCX, TXT)",
         "description": "Validate, parse, chunk, embed, and store uploaded documents in Qdrant.\n\nThe batch is all-or-nothing: every file is validated and parsed before anything is\nwritten, and if indexing fails part-way the documents already indexed are removed.\n\nFiles are de-duplicated by the SHA-256 of their bytes (against the index and within the\nbatch): a repeat upload is reported as `already_indexed` with the existing `doc_id`\ninstead of indexing the same chunks twice, which would duplicate citations.",
         "operationId": "upload_documents_api_v1_documents_upload_post",
-        "parameters": [
-          {
-            "name": "X-API-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "multipart/form-data": {
               "schema": {
                 "$ref": "#/components/schemas/Body_upload_documents_api_v1_documents_upload_post"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "201": {
@@ -85,7 +67,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
       }
     },
     "/api/v1/documents": {
@@ -96,24 +83,6 @@
         "summary": "List indexed documents",
         "description": "Return all currently indexed documents and vector chunk counts.",
         "operationId": "list_documents_api_v1_documents_get",
-        "parameters": [
-          {
-            "name": "X-API-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -124,18 +93,13 @@
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
-        }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
       }
     },
     "/api/v1/documents/reset": {
@@ -146,50 +110,27 @@
         "summary": "Clear all documents from the vector store",
         "description": "Delete the Qdrant collection and clear chat sessions so new uploads start clean.",
         "operationId": "reset_knowledge_base_api_v1_documents_reset_delete",
-        "parameters": [
-          {
-            "name": "X-API-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": {
                     "type": "string"
                   },
+                  "type": "object",
                   "title": "Response Reset Knowledge Base Api V1 Documents Reset Delete"
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
-        }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
       }
     },
     "/api/v1/documents/{doc_id}": {
@@ -200,6 +141,11 @@
         "summary": "Delete a specific document by ID",
         "description": "Remove all indexed chunks associated with `doc_id` from Qdrant.",
         "operationId": "delete_document_api_v1_documents__doc_id__delete",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "doc_id",
@@ -208,22 +154,6 @@
             "schema": {
               "type": "string",
               "title": "Doc Id"
-            }
-          },
-          {
-            "name": "X-API-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
             }
           }
         ],
@@ -259,33 +189,15 @@
         "summary": "Ask a question grounded strictly in uploaded documents",
         "description": "Retrieve matching evidence chunks, rerank them, and generate a cited answer.",
         "operationId": "query_documents_api_v1_query_post",
-        "parameters": [
-          {
-            "name": "X-API-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/QueryRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -308,7 +220,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
       }
     },
     "/api/v1/query/stream": {
@@ -319,33 +236,15 @@
         "summary": "Stream grounded answer tokens via Server-Sent Events (SSE)",
         "description": "Stream citations first, followed by grounded token deltas and completion status.",
         "operationId": "stream_query_documents_api_v1_query_stream_post",
-        "parameters": [
-          {
-            "name": "X-API-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/QueryRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -366,7 +265,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
       }
     },
     "/api/v1/sessions/{session_id}": {
@@ -377,6 +281,11 @@
         "summary": "Clear conversation history for a session",
         "description": "Delete stored turns for `session_id`.",
         "operationId": "clear_session_history_api_v1_sessions__session_id__delete",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -385,22 +294,6 @@
             "schema": {
               "type": "string",
               "title": "Session Id"
-            }
-          },
-          {
-            "name": "X-API-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
             }
           }
         ],
@@ -447,6 +340,11 @@
         "summary": "Export conversation transcript as Markdown or JSON",
         "description": "Download the full Q&A transcript with citations for `session_id`.",
         "operationId": "export_session_transcript_api_v1_sessions__session_id__export_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -472,22 +370,6 @@
               "title": "Format"
             },
             "description": "Output format: downloadable Markdown (.md) or structured JSON."
-          },
-          {
-            "name": "X-API-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
           }
         ],
         "responses": {
@@ -1039,6 +921,14 @@
           "type"
         ],
         "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "description": "Required only when the server runs with AUTH_ENABLED=true.",
+        "in": "header",
+        "name": "X-API-Key"
       }
     }
   }

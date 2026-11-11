@@ -56,6 +56,7 @@ Step-by-step setup instructions, with free key links and troubleshooting, are in
 | Bonus: Docker and Compose | `../Dockerfile`, `../docker-compose.yml` |
 | Bonus: multi-turn sessions, transcript export, API-key auth, per-query tracing | `../README.md` (Key Features, Observability) |
 | Sample exported conversation transcript | `./Conversations-sample-alprime-transcript-a381715a.md` |
+| Architecture, AI/RAG pipeline & API flowcharts (PNG + ASCII) | `./diagrams/` (`01_system_and_api_architecture.png`, `02_rag_and_guardrails_pipeline.png`, `03_llm_routing_and_api_lifecycle.png`, `ARCHITECTURE_FLOWCHARTS.txt`) |
 
 ---
 

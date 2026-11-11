@@ -1,0 +1,110 @@
+# AlPrime Document RAG Assistant — Text / ASCII Architecture & Flowcharts
+
+These plain-text diagrams mirror the PNG flowcharts in this folder so they remain
+readable in any terminal, text editor, or offline viewer.
+
+================================================================================
+1. SYSTEM ARCHITECTURE & PROJECT STRUCTURE
+================================================================================
+
+  +-------------------------+        +------------------------------------------+
+  | Clients                 |        | FastAPI Layer (app/main.py, app/api/)    |
+  |  - Web UI (/)           |------->|  - X-API-Key Guard (core/security.py)    |
+  |  - Swagger (/docs)      |        |  - CORS & Lifespan DI (dependencies.py)  |
+  |  - Postman / cURL       |        |  - Typed Error Mapper (400..503)         |
+  +-------------------------+        +--------------------+---------------------+
+                                                          |
+                +-----------------------------------------+----------------------------------------+
+                | Ingestion (/api/v1/documents/*)                                                  | Query (/api/v1/query*, /sessions/*)
+                v                                                                                  v
+  +-------------------------------------+                            +--------------------------------------------------+
+  | Document Ingestion Services         |                            | RAG & Guardrail Services                         |
+  |  - document_parser.py (PDF/DOCX/TXT)|                            |  - query_intent.py (greeting/overview/reasoning) |
+  |  - text_splitter.py (800 / 150)     |                            |  - rag_service.py (5-layer pipeline + SSE gate)  |
+  |  - SHA-256 duplicate protection     |                            |  - citations.py (compact [1] + sentinel strip)   |
+  |  - All-or-nothing batch rollback    |                            |  - replies.py (templated refusals & greetings)   |
+  +-----------------+-------------------+                            |  - session_store.py (scope memory + export)      |
+                    |                                                |  - tracing.py (structured JSON query_trace)      |
+                    |                                                +------------------------+-------------------------+
+                    |                                                                         |
+                    v                                                                         v
+  +--------------------------------------------------+               +--------------------------------------------------+
+  | Vector Storage & Local ONNX Inference            |               | Multi-Provider LLM Router (llm_client.py)        |
+  |  - Qdrant (Embedded Disk or Docker :6333)        |<------------->|  1. Runware DeepSeek V4.1 Flash (low/high think) |
+  |  - FastEmbed bge-small-en-v1.5 (384-d embeddings)|               |  2. Google Gemini 3.5 Flash Lite                 |
+  |  - FastEmbed ms-marco-MiniLM-L-6-v2 (reranker)   |               |  3. Groq Qwen 3.8 27B (+ 20s stall failover)     |
+  +--------------------------------------------------+               +--------------------------------------------------+
+
+================================================================================
+2. DOCUMENT INGESTION PIPELINE
+================================================================================
+
+  [Upload PDF/DOCX/TXT]
+         |
+         v
+  [Validate <=10 files, <=20MB, allowed extension] --fail--> HTTP 400 / 413
+         |
+         v
+  [Compute SHA-256 Digest] --already in Qdrant/batch--> HTTP 200 status="already_indexed"
+         |
+         v (new file)
+  [Extract Text (PDF per-page / DOCX Markdown tables / TXT)] --empty/scanned/corrupt--> HTTP 422
+         |
+         v
+  [Recursive Split (800 chars, 150 overlap) + Metadata (doc_id, page, sha256)]
+         |
+         v
+  [ONNX Embed (bge-small-en-v1.5) + Qdrant Upsert] --error--> [Atomic Batch Rollback]
+         |
+         v
+  HTTP 201 Created (doc_id, page_count, chunk_count)
+
+================================================================================
+3. 5-LAYER ANTI-HALLUCINATION RAG & STREAMING PIPELINE
+================================================================================
+
+  [Question + optional session_id, doc_ids, top_k]
+         |
+         +--> [Pure Greeting / Thanks / Help?] --Yes--> [Templated Reply + Doc Count (0 LLM calls)]
+         |
+         v (Factual Query)
+  [Layer 1: Empty / Stale doc_ids Guard] --None left--> [Templated Refusal (no_documents_indexed / selected_documents_missing)]
+         |
+         +--> [Whole-Doc Overview Prompt?] --Yes--> [Fetch Lead Chunks per Doc + Semantic Search]
+         |
+         v (Specific Topic)
+  [Session History?] --Yes--> [Rewrite Follow-Up (Thinking Off)] --> [Dual Search: Rewrite + Original]
+         |
+         v
+  [Layer 2: Dense Search Top-10 & Cosine Gate >= 0.45] --0 pass--> [Templated Refusal (low_retrieval_relevance)]
+         |
+         v
+  [Layer 3: Cross-Encoder (>= -6.0) + MaxP 2-Sentence Window + Bounded Lexical Rescue] --0 pass--> [Refusal (low_retrieval_relevance)]
+         |
+         v (Top-6 Passages)
+  [Layer 4: XML Escape + <document_context> Fence + Temp 0.0 + RoutingLLMClient]
+         |
+         v
+  [Layer 5: SSE Commit Gate (Hold until [1] or 160 chars) + Sentinel Check (NO_RELEVANT_INFO_FOUND)]
+         |
+         +--> [Sentinel / Refusal] --> [Templated Refusal Naming Searched Docs (insufficient_document_evidence)]
+         |
+         v (Grounded)
+  [Unwrap `[1]` Code Marks, Renumber [1][2], Narrow Citations] --> [Session Transcript + JSON QueryTrace]
+
+================================================================================
+4. REST API ENDPOINTS & ERROR CONTRACT
+================================================================================
+
+  GET    /                                 HTML Chat & Upload UI
+  GET    /health                           Readiness, Qdrant mode, LLM chain, indexed counts
+  POST   /api/v1/documents/upload          Index PDF/DOCX/TXT (201 new, 200 already_indexed)
+  GET    /api/v1/documents                 Inventory of indexed files
+  DELETE /api/v1/documents/{doc_id}        Remove a document (404 if missing)
+  DELETE /api/v1/documents/reset           Wipe Qdrant collection & sessions
+  POST   /api/v1/query                     Synchronous JSON RAG response
+  POST   /api/v1/query/stream              SSE events: status -> citations -> token* -> done | error
+  GET    /api/v1/sessions/{id}/export      Download transcript (?format=markdown|json, 404 if empty)
+  DELETE /api/v1/sessions/{id}             Clear session history & transcript
+
+  Status Codes: 200 OK | 201 Created | 400 Bad Ext | 401 Auth | 404 Missing | 413 Too Large | 422 Empty/Invalid | 502 LLM Fail | 503 DB/No Key
