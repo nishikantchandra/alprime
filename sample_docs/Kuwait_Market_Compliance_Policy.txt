@@ -1,0 +1,24 @@
+ALPRIME CAPITAL - CLIENT ONBOARDING & AML/KYC COMPLIANCE POLICY (REV 2026.2)
+
+1. PURPOSE & SCOPE
+This policy governs mandatory Know Your Customer (KYC), Anti-Money Laundering (AML), and data
+confidentiality controls for all new advisory, bookkeeping, and feasibility engagements handled
+by AlPrime Capital staff in Kuwait.
+
+2. MANDATORY CLIENT DOCUMENTATION
+Before opening an ERP workspace or accessing bank feeds, engagement leads must collect:
+- Valid Kuwait Ministry of Commerce & Industry (MOCI) Commercial License copy.
+- Authorized Signatory Civil ID and passport verification record.
+- Ultimate Beneficial Ownership (UBO) declaration for any shareholder owning 25% or more equity.
+- Most recent signed fiscal year financial statements (if operational for more than 12 months).
+
+3. RISK TIERS & ESCALATION SLA
+- Standard Risk Clients: Onboarding review completed within 2 business days by the Engagement Manager.
+- High-Risk Clients (cross-border cash-intensive entities or Politically Exposed Persons): Mandatory
+  escalation to the designated Compliance Officer within 24 hours (1 business day), requiring written
+  Managing Partner sign-off prior to engagement activation.
+
+4. DATA RETENTION & AI PRIVACY RULES
+Client financial ledgers must remain segregated per tenant and must never be used to train external
+public AI models. All uploaded working papers and audit trails are archived in encrypted storage
+for a statutory minimum retention period of 5 years under Kuwaiti commercial recordkeeping regulations.

@@ -1,0 +1,23 @@
+# Runtime dependencies (development/test tools live in requirements-dev.txt)
+
+# Core Web Framework
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.32.0,<1.0.0
+python-multipart>=0.0.12
+
+# Configuration & Validation
+pydantic>=2.9.0,<3.0.0
+pydantic-settings>=2.6.0,<3.0.0
+
+# Document Parsing (PDF, DOCX, TXT)
+pypdf>=5.0.0,<6.0.0
+python-docx>=1.1.2,<2.0.0
+
+# Vector Store & Local Embeddings / Cross-Encoder Reranking
+qdrant-client>=1.12.0,<2.0.0
+fastembed>=0.4.2,<1.0.0
+
+# LLM Providers (Gemini native; Groq/Qwen + any OpenAI-compatible endpoint via openai SDK)
+google-genai>=1.0.0,<2.0.0
+openai>=1.55.0,<2.0.0
+httpx>=0.27.2,<1.0.0

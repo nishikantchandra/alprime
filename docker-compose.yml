@@ -1,0 +1,30 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    restart: unless-stopped
+    environment:
+      # Optional: set QDRANT_API_KEY in .env to require a key for the database too.
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+    # Bound to localhost only; the API container reaches Qdrant over the compose network.
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      QDRANT_URL: "http://qdrant:6333"
+    depends_on:
+      - qdrant
+
+volumes:
+  qdrant_storage:

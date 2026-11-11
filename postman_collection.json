@@ -1,0 +1,396 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-4a7b-8c9d-alprimecap001",
+    "name": "AlPrime Capital - Document RAG Assistant API",
+    "description": "Postman v2.1 collection for uploading PDF/DOCX/TXT documents and executing zero-hallucination RAG queries with provenance citations.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "api_key",
+      "value": "alprime-dev-key"
+    },
+    {
+      "key": "doc_id",
+      "value": ""
+    },
+    {
+      "key": "session_id",
+      "value": "alprime-demo-session"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health & Readiness Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "2. Upload Sample Documents (PDF, DOCX, TXT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "files",
+              "type": "file",
+              "src": "sample_docs/AlPrime_Q3_2026_Financial_Performance.pdf"
+            },
+            {
+              "key": "files",
+              "type": "file",
+              "src": "sample_docs/AlPrime_Q2_2026_Management_Accounts.pdf"
+            },
+            {
+              "key": "files",
+              "type": "file",
+              "src": "sample_docs/AlPrime_Advisory_Fee_Schedule_2026.docx"
+            },
+            {
+              "key": "files",
+              "type": "file",
+              "src": "sample_docs/AlPrime_Staff_Expense_and_Approval_Policy.docx"
+            },
+            {
+              "key": "files",
+              "type": "file",
+              "src": "sample_docs/Kuwait_Market_Compliance_Policy.txt"
+            },
+            {
+              "key": "files",
+              "type": "file",
+              "src": "sample_docs/AlPrime_Client_Engagement_FAQ.txt"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/documents/upload",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "upload"
+          ]
+        }
+      }
+    },
+    {
+      "name": "3. List Indexed Documents",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/documents",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents"
+          ]
+        }
+      }
+    },
+    {
+      "name": "4. Query Documents (Grounded Positive Example)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"What was AlPrime Capital's Q3 2026 consolidated revenue and operating margin?\",\n  \"session_id\": \"{{session_id}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/query",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "name": "5. Query Follow-Up Turn (Multi-Turn History)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"What were the Salhia Complex lease and ERP licensing costs in that same period?\",\n  \"session_id\": \"{{session_id}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/query",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "name": "6. Query Table Extraction (DOCX Fee Schedule)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"What is the monthly retainer fee in KWD and analyst hours included for Fractional CFO Advisory?\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/query",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "name": "7. Query Anti-Hallucination Refusal (Out-of-Scope Trap)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"What was AlPrime Capital's CEO annual compensation and 2028 Bitcoin treasury target?\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/query",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "name": "8. Stream Query Response (SSE)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"Within how many business days must High-Risk Clients be escalated to the Compliance Officer?\",\n  \"session_id\": \"{{session_id}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/query/stream",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "query",
+            "stream"
+          ]
+        }
+      }
+    },
+    {
+      "name": "9. Delete Single Document",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/documents/{{doc_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "{{doc_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "10. Export Conversation Transcript",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/sessions/{{session_id}}/export?format=markdown",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "sessions",
+            "{{session_id}}",
+            "export"
+          ],
+          "query": [
+            {
+              "key": "format",
+              "value": "markdown"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "11. Clear Conversation Session",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/sessions/{{session_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "sessions",
+            "{{session_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "12. Reset Knowledge Base",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "disabled": true
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/documents/reset",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "documents",
+            "reset"
+          ]
+        }
+      }
+    }
+  ]
+}

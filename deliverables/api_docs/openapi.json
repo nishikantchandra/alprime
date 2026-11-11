@@ -1,0 +1,1045 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AlPrime Document RAG Assistant",
+    "description": "Production-grade Retrieval-Augmented Generation (RAG) REST API for querying uploaded PDF, DOCX, and TXT documents with strict anti-hallucination guardrails and citations.",
+    "version": "1.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Operational"
+        ],
+        "summary": "Health & readiness check",
+        "description": "Return service status, active RAG configuration, and indexed vector counts.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/upload": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Upload and index one or more documents (PDF, DOCX, TXT)",
+        "description": "Validate, parse, chunk, embed, and store uploaded documents in Qdrant.\n\nThe batch is all-or-nothing: every file is validated and parsed before anything is\nwritten, and if indexing fails part-way the documents already indexed are removed.\n\nFiles are de-duplicated by the SHA-256 of their bytes (against the index and within the\nbatch): a repeat upload is reported as `already_indexed` with the existing `doc_id`\ninstead of indexing the same chunks twice, which would duplicate citations.",
+        "operationId": "upload_documents_api_v1_documents_upload_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_documents_api_v1_documents_upload_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "List indexed documents",
+        "description": "Return all currently indexed documents and vector chunk counts.",
+        "operationId": "list_documents_api_v1_documents_get",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/reset": {
+      "delete": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Clear all documents from the vector store",
+        "description": "Delete the Qdrant collection and clear chat sessions so new uploads start clean.",
+        "operationId": "reset_knowledge_base_api_v1_documents_reset_delete",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Reset Knowledge Base Api V1 Documents Reset Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{doc_id}": {
+      "delete": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Delete a specific document by ID",
+        "description": "Remove all indexed chunks associated with `doc_id` from Qdrant.",
+        "operationId": "delete_document_api_v1_documents__doc_id__delete",
+        "parameters": [
+          {
+            "name": "doc_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Doc Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteDocumentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/query": {
+      "post": {
+        "tags": [
+          "RAG Query"
+        ],
+        "summary": "Ask a question grounded strictly in uploaded documents",
+        "description": "Retrieve matching evidence chunks, rerank them, and generate a cited answer.",
+        "operationId": "query_documents_api_v1_query_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/query/stream": {
+      "post": {
+        "tags": [
+          "RAG Query"
+        ],
+        "summary": "Stream grounded answer tokens via Server-Sent Events (SSE)",
+        "description": "Stream citations first, followed by grounded token deltas and completion status.",
+        "operationId": "stream_query_documents_api_v1_query_stream_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}": {
+      "delete": {
+        "tags": [
+          "RAG Query"
+        ],
+        "summary": "Clear conversation history for a session",
+        "description": "Delete stored turns for `session_id`.",
+        "operationId": "clear_session_history_api_v1_sessions__session_id__delete",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "title": "Response Clear Session History Api V1 Sessions  Session Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/export": {
+      "get": {
+        "tags": [
+          "RAG Query"
+        ],
+        "summary": "Export conversation transcript as Markdown or JSON",
+        "description": "Download the full Q&A transcript with citations for `session_id`.",
+        "operationId": "export_session_transcript_api_v1_sessions__session_id__export_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "markdown",
+                "json"
+              ],
+              "type": "string",
+              "description": "Output format: downloadable Markdown (.md) or structured JSON.",
+              "default": "markdown",
+              "title": "Format"
+            },
+            "description": "Output format: downloadable Markdown (.md) or structured JSON."
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_upload_documents_api_v1_documents_upload_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files",
+            "description": "One or more PDF, DOCX, or TXT files."
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_upload_documents_api_v1_documents_upload_post"
+      },
+      "Citation": {
+        "properties": {
+          "document_name": {
+            "type": "string",
+            "title": "Document Name",
+            "description": "Filename of the referenced document."
+          },
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id",
+            "description": "Unique ID of the referenced document."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page",
+            "description": "Logical page or section number."
+          },
+          "similarity_score": {
+            "type": "number",
+            "title": "Similarity Score",
+            "description": "Vector cosine similarity score from Qdrant."
+          },
+          "rerank_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Score",
+            "description": "Cross-encoder relevance logit/score when reranker is enabled."
+          },
+          "snippet": {
+            "type": "string",
+            "title": "Snippet",
+            "description": "Relevant text excerpt retrieved from the document."
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_name",
+          "doc_id",
+          "page",
+          "similarity_score",
+          "snippet"
+        ],
+        "title": "Citation",
+        "description": "Exact source provenance and excerpt backing a generated answer."
+      },
+      "DeleteDocumentResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id"
+          },
+          "chunks_deleted": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Chunks Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message",
+          "doc_id",
+          "chunks_deleted"
+        ],
+        "title": "DeleteDocumentResponse",
+        "description": "Confirmation of document removal from Qdrant."
+      },
+      "DocumentInfo": {
+        "properties": {
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "file_type": {
+            "type": "string",
+            "title": "File Type"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "doc_id",
+          "filename",
+          "file_type",
+          "page_count",
+          "chunk_count",
+          "uploaded_at"
+        ],
+        "title": "DocumentInfo",
+        "description": "Indexed document metadata entry."
+      },
+      "DocumentListResponse": {
+        "properties": {
+          "total_documents": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Documents"
+          },
+          "total_chunks": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Chunks"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentInfo"
+            },
+            "type": "array",
+            "title": "Documents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_documents",
+          "total_chunks",
+          "documents"
+        ],
+        "title": "DocumentListResponse",
+        "description": "Listing of all currently indexed documents."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "app_name": {
+            "type": "string",
+            "title": "App Name"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "qdrant_mode": {
+            "type": "string",
+            "title": "Qdrant Mode"
+          },
+          "embedding_model": {
+            "type": "string",
+            "title": "Embedding Model"
+          },
+          "reranker_enabled": {
+            "type": "boolean",
+            "title": "Reranker Enabled"
+          },
+          "llm_provider": {
+            "type": "string",
+            "title": "Llm Provider"
+          },
+          "llm_configured": {
+            "type": "boolean",
+            "title": "Llm Configured"
+          },
+          "auth_enabled": {
+            "type": "boolean",
+            "title": "Auth Enabled"
+          },
+          "indexed_documents": {
+            "type": "integer",
+            "title": "Indexed Documents"
+          },
+          "indexed_chunks": {
+            "type": "integer",
+            "title": "Indexed Chunks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "app_name",
+          "version",
+          "qdrant_mode",
+          "embedding_model",
+          "reranker_enabled",
+          "llm_provider",
+          "llm_configured",
+          "auth_enabled",
+          "indexed_documents",
+          "indexed_chunks"
+        ],
+        "title": "HealthResponse",
+        "description": "Service readiness and runtime dependency snapshot."
+      },
+      "QueryRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "description": "Question to answer strictly from uploaded documents.",
+            "examples": [
+              "What was AlPrime Capital's Q3 2026 consolidated revenue?"
+            ]
+          },
+          "top_k": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 20.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top K",
+            "description": "Maximum number of evidence chunks passed to the LLM (defaults to server RERANK_TOP_K)."
+          },
+          "doc_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Ids",
+            "description": "Optional list of doc_ids to scope retrieval to specific uploaded documents."
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "description": "Optional conversation session identifier for multi-turn follow-up resolution."
+          }
+        },
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "QueryRequest",
+        "description": "User question request with optional document filtering and session continuity."
+      },
+      "QueryResponse": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "is_found": {
+            "type": "boolean",
+            "title": "Is Found",
+            "description": "True when grounded evidence was found; False when fallback or conversational."
+          },
+          "response_type": {
+            "type": "string",
+            "enum": [
+              "grounded",
+              "not_found",
+              "conversational"
+            ],
+            "title": "Response Type",
+            "description": "Distinguishes cited answers, missing-evidence refusals, and greetings.",
+            "default": "grounded"
+          },
+          "refusal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal Reason",
+            "description": "Specific reason when not_found (no_documents_indexed, selected_documents_missing, low_retrieval_relevance, insufficient_document_evidence)."
+          },
+          "status_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Detail",
+            "description": "Human-readable diagnostic explanation of retrieval outcome or conversational mode."
+          },
+          "documents_used": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Documents Used",
+            "description": "Deduplicated filenames cited as sources."
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "type": "array",
+            "title": "Citations",
+            "description": "Ranked source chunks backing the answer."
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "description": "Echoed or newly assigned session ID when conversation history is used."
+          }
+        },
+        "type": "object",
+        "required": [
+          "answer",
+          "is_found"
+        ],
+        "title": "QueryResponse",
+        "description": "Structured grounded response including exact documents and snippets used."
+      },
+      "UploadResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/UploadedDocResult"
+            },
+            "type": "array",
+            "title": "Documents"
+          },
+          "total_chunks_indexed": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Chunks Indexed"
+          },
+          "duplicates_skipped": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duplicates Skipped",
+            "description": "Files skipped because identical content was already indexed.",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "message",
+          "documents",
+          "total_chunks_indexed"
+        ],
+        "title": "UploadResponse",
+        "description": "Response payload for single or multi-file document upload."
+      },
+      "UploadedDocResult": {
+        "properties": {
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id",
+            "description": "Unique document identifier assigned at ingestion."
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "Original sanitized filename."
+          },
+          "file_type": {
+            "type": "string",
+            "title": "File Type",
+            "description": "Normalized file extension (pdf, docx, txt)."
+          },
+          "page_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page Count",
+            "description": "Number of logical pages or sections parsed."
+          },
+          "chunk_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Chunk Count",
+            "description": "Number of text chunks indexed in Qdrant."
+          },
+          "char_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Char Count",
+            "description": "Total extracted character count (omitted for already-indexed duplicates)."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "indexed",
+              "already_indexed"
+            ],
+            "title": "Status",
+            "description": "`already_indexed` means identical file content (same SHA-256) was uploaded before; it was not indexed again and `doc_id` points to the existing copy.",
+            "default": "indexed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "doc_id",
+          "filename",
+          "file_type",
+          "page_count",
+          "chunk_count"
+        ],
+        "title": "UploadedDocResult",
+        "description": "Metadata summary returned for each processed upload."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
