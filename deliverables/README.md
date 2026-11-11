@@ -20,7 +20,9 @@ The repository root (`../`) is the runnable application. This folder holds the e
 
 ## Reviewing in 10 Minutes
 
-1. Start it. Copy `../.env.example` to `../.env` and add one LLM key (Runware, Gemini or Groq; any one is enough). Then run:
+Step-by-step setup instructions, with free key links and troubleshooting, are in the [Quick Start Guide](../QUICKSTART.md).
+
+1. Start it. Copy `../.env.example` to `../.env` and add one LLM key of your own (Runware, Gemini or Groq; any one is enough, and Gemini and Groq have free tiers). Then run:
    ```bash
    docker compose up --build        # or: uvicorn app.main:app --port 8000
    ```
@@ -41,6 +43,7 @@ The repository root (`../`) is the runnable application. This folder holds the e
 | Deliverable | Location |
 | :--- | :--- |
 | Source code | `../app/` (`api/`, `core/`, `schemas/`, `services/`, `main.py`, `config.py`) |
+| Quick start: setup, run, what it does and does not do | `../QUICKSTART.md` |
 | Setup, architecture and design README | `../README.md` |
 | Python dependencies | `../requirements.txt` (runtime), `../requirements-dev.txt` (tests), `../requirements-lock.txt` (exact verified versions) |
 | Sample documents (PDF, DOCX, TXT) | `../sample_docs/`: 6 files, 3 of them written with planted traps; generator in `../scripts/generate_sample_docs.py` |

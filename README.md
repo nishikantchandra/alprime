@@ -2,6 +2,8 @@
 
 A production-grade Retrieval-Augmented Generation (RAG) REST API and interactive Web UI built with FastAPI, Qdrant, and FastEmbed. Designed for financial and corporate document workflows, the assistant lets users upload PDF, DOCX (including structured tables), and TXT files and answers questions exclusively from uploaded content with inline citations, source snippets, and a multi-layer anti-hallucination guardrail pipeline.
 
+> New here? Follow the [Quick Start Guide](QUICKSTART.md) to run the app in about 10 minutes. You need Docker or Python 3.11+, plus one LLM API key of your own. Free keys from Google Gemini or Groq work. No keys are included in this repository.
+
 ---
 
 ## Key Features
